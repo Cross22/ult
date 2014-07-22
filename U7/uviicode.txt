@@ -1,0 +1,41 @@
+Quick Reference on Locations: (for the copy protection)
+
+TOWNS:
+   Name:                 Location: (lat, long)
+   ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯       ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+   Britain            -  (0, 0)
+   Buccaneer's Den    -  (60S, 60E)
+   Cove               -  (0, 60E)
+   Empath Abbey       -  (90N, 60W)
+   Jhelom             -  (120S, 60W)
+   Lycaeum            -  (60S, 180E)
+   Minoc              -  (90N, 60E)
+   Moonglow           -  (60S, 180E)
+   New Magincia       -  (90S, 120E)
+   Paws               -  (0, 0)
+   Serpent's Hold     -  (150S, 60E)
+   Skara Brae         -  (30S, 60W)
+   Spektran           -  (120S, 90E)
+   Terfin             -  (150S, 120E)
+   Trinsic            -  (90S, 0)
+   Vesper             -  (0, 120E)
+   Yew                -  (90N, 60W)
+
+DUNGEONS:
+   Ambrosia           -  (93N, 187E)
+   Covetous           -  (58N, 95E)
+   Deceit             -  (2N, 177E)
+   Despise            -  (8N, 30W)
+   Destard            -  (70S, 23W)
+   Isle of the Avatar -  (150S, 180E)
+   Wrong              -  (60N, 22E)
+
+GEOGRAPHIC AREAS:
+   Great Forest       -  (60N, 30W)
+   Fens of Dead       -  (60, 0)
+   Blood Marsh        -  (30, 90)
+   Bog of Desolation  -  (30, 30)
+   Spiritwood         -  (60, 30)
+   Serpents Spine     -  (0, 30) or (30, 0)
+   Dagger Isle        -  (0, 0)
+
