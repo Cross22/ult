@@ -1,6 +1,8 @@
 /*jslint node: true, vars:true */
 "use strict";
 
+readFile('U7/static/faces.vga');
+
 function readFile(filename) {
     var request = new XMLHttpRequest();
 
@@ -8,12 +10,51 @@ function readFile(filename) {
     request.responseType = 'arraybuffer';
 
     request.onload = function() {
-        parseArrayBuffer( request.response );
+        console.log("file loaded");
+        parseFlxShp( request.response );
     }
 
     request.send();
 }
 
+function hex(value) {
+    return '0x' + value.toString(16);
+}
+
+// File format from here:
+// http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
+function parseFlx(buffer) {
+    var TFlxHdr = Struct.create(
+        Struct.string("comment",80),
+        Struct.uint32("magic1"),
+        Struct.uint32("numRecords"),
+        Struct.array("magic2", Struct.uint32(),10)       
+    );
+    var TFlxRecordIndex = Struct.create(
+        Struct.uint32("byteOffset"), // relative to beginning of flx file
+        Struct.uint32("byteLength")
+    );
+    var hdr= TFlxHdr.readStructs(buffer, 0, 1)[0];
+    console.log('Magic1 should be 0xffff 1a00. Found: ' + hex(hdr.magic1));
+    console.log('Num records in file: '+hdr.numRecords);
+    // Read all record indices
+    var recordIndex = TFlxRecordIndex.readStructs(buffer, 0x80, hdr.numRecords);
+    for (var i=0; i<10; ++i) {
+        console.log( i + ': ' + hex(recordIndex[i].byteOffset)+ ' ' + hex(recordIndex[i].byteLength) );
+    }
+    parseShp(buffer, recordIndex[0].byteOffset);
+}
+
+function parseShp(buffer, fileOffset) {
+    var TShpHdr = Struct.create(
+        Struct.uint32("totalLength"),
+        Struct.uint32("offset") // first data entry is at this byte offset relative to "totalLength" above
+    );
+    var shpHdr = TShpHdr.readStructs(buffer, fileOffset, 1)[0];
+    var lastOffset = Uint32Array(buffer, fileOffset+ shpHdr.offset
+}
+
+/*
 function parseArrayBuffer(buffer) {
     // Define the struct layout
     var SimpleStruct = Struct.create(
@@ -56,4 +97,4 @@ function parseArrayBuffer(buffer) {
         console.log("Parsed " + newStruct + " at offset " + offset);
     });
 
-}
+}*/
