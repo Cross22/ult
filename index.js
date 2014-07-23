@@ -3,16 +3,19 @@
 
 var ctx ;
 
+var shape=0x0;
 window.onload=function(){
     var canvas = document.getElementById("canvas");
     ctx = canvas.getContext("2d");
     
-    readFile('U7/static/palettes.flx', parsePalette);
-    readFile('U7/static/faces.vga', parseShp);
+    readFile('U7/static/palettes.flx', parsePalette,0);
+    readFile('U7/static/faces.vga', parseShp, shape++);
+  
+   setInterval( function(){ if (shape<300) readFile('U7/static/faces.vga',parseShp,shape++)},500);
 };
 
 
-function readFile(filename, onRecordRead) {
+function readFile(filename, onRecordRead, recordNum) {
     var request = new XMLHttpRequest();
     
     request.open( 'GET', filename, true );
@@ -20,7 +23,7 @@ function readFile(filename, onRecordRead) {
     
     request.onload = function() {
         console.log("file loaded");
-        parseFlx( request.response, onRecordRead );
+        parseFlx( request.response, onRecordRead, recordNum );
     }
     
     request.send();
@@ -32,7 +35,7 @@ function hex(value) {
 
 // File format from here:
 // http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
-function parseFlx(buffer, onRecordRead ) {
+function parseFlx(buffer, onRecordRead, recordNum) {
     var TFlxHdr = Struct.create(
                                 Struct.string("comment",80),
                                 Struct.uint32("magic1"),
@@ -52,12 +55,17 @@ function parseFlx(buffer, onRecordRead ) {
         //        console.log( i + ': ' + hex(recordIndex[i].byteOffset)+ ' ' + hex(recordIndex[i].byteLength) );
         //        parseShp(buffer, recordIndex[i].byteOffset);
     }
-    onRecordRead(buffer, recordIndex[0].byteOffset);
+    onRecordRead(buffer, recordIndex[recordNum].byteOffset);
 }
 
 function parseShp(buffer, fileOffset) {
-    var totalLength         = new Uint32Array(buffer, fileOffset+ 0,1)[0];
-    var firstFrameOffset    = new Uint32Array(buffer, fileOffset+ 4,1)[0];
+    var TShpStart = Struct.create(
+                                        Struct.uint32("totalLength"), // relative to beginning of flx file
+                                        Struct.uint32("firstFrameOffset")
+                                        );
+
+    var shpStart = TShpStart.readStructs(buffer, fileOffset, 1)[0];
+    var firstFrameOffset    = shpStart.firstFrameOffset;
     var numFrames = (firstFrameOffset - 4) / 4;
     var TShpHdr = Struct.create(
                                 Struct.uint32("totalLength"),
