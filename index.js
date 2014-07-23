@@ -3,15 +3,18 @@
 
 var ctx ;
 
-var shape=0x0;
+// current shape record to read. There are 300 in faces.vga
+var shape=0;
+
 window.onload=function(){
     var canvas = document.getElementById("canvas");
     ctx = canvas.getContext("2d");
     
-    readFile('U7/static/palettes.flx', parsePalette,0);
-    readFile('U7/static/faces.vga', parseShp, shape++);
+    readFile('U7/STATIC/PALETTES.FLX', parsePalette,0);
+    readFile('U7/STATIC/FACES.VGA', parseShp, shape++);
   
-   setInterval( function(){ if (shape<300) readFile('U7/static/faces.vga',parseShp,shape++)},500);
+   // load next one
+   setInterval( function(){ if (shape<300) readFile('U7/STATIC/FACES.VGA',parseShp,shape++)},500);
 };
 
 
