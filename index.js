@@ -6,19 +6,13 @@ var ctx ;
 window.onload=function(){
     var canvas = document.getElementById("canvas");
     ctx = canvas.getContext("2d");
-
-    var SCALE=2;
-    var col=200;
-//    ctx.fillStyle="rgb("+col+","+col+",0)";//200,0,0)";//""#FF0000";//"rgb("+data[i]+","+data[i]+","+data[i]+")";
-//    ctx.fillRect(0*SCALE,0*SCALE,SCALE,SCALE);
-//
-//    ctx.fillRect(20*SCALE,20*SCALE,SCALE,SCALE);
-
-    readFile('U7/static/faces.vga');
+    
+    readFile('U7/static/palettes.flx', parsePalette);
+    readFile('U7/static/faces.vga', parseShp);
 };
 
 
-function readFile(filename) {
+function readFile(filename, onRecordRead) {
     var request = new XMLHttpRequest();
     
     request.open( 'GET', filename, true );
@@ -26,7 +20,7 @@ function readFile(filename) {
     
     request.onload = function() {
         console.log("file loaded");
-        parseFlxShp( request.response );
+        parseFlx( request.response, onRecordRead );
     }
     
     request.send();
@@ -38,7 +32,7 @@ function hex(value) {
 
 // File format from here:
 // http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
-function parseFlxShp(buffer) {
+function parseFlx(buffer, onRecordRead ) {
     var TFlxHdr = Struct.create(
                                 Struct.string("comment",80),
                                 Struct.uint32("magic1"),
@@ -55,10 +49,10 @@ function parseFlxShp(buffer) {
     // Read all record indices
     var recordIndex = TFlxRecordIndex.readStructs(buffer, 0x80, hdr.numRecords);
     for (var i=0; i<10; ++i) {
-//        console.log( i + ': ' + hex(recordIndex[i].byteOffset)+ ' ' + hex(recordIndex[i].byteLength) );
-//        parseShp(buffer, recordIndex[i].byteOffset);
+        //        console.log( i + ': ' + hex(recordIndex[i].byteOffset)+ ' ' + hex(recordIndex[i].byteLength) );
+        //        parseShp(buffer, recordIndex[i].byteOffset);
     }
-    parseShp(buffer, recordIndex[0].byteOffset);
+    onRecordRead(buffer, recordIndex[0].byteOffset);
 }
 
 function parseShp(buffer, fileOffset) {
@@ -66,17 +60,38 @@ function parseShp(buffer, fileOffset) {
     var firstFrameOffset    = new Uint32Array(buffer, fileOffset+ 4,1)[0];
     var numFrames = (firstFrameOffset - 4) / 4;
     var TShpHdr = Struct.create(
-                                    Struct.uint32("totalLength"),
-                                    Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
-                                    );
+                                Struct.uint32("totalLength"),
+                                Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
+                                );
     var frameIndex = TShpHdr.readStructs(buffer, fileOffset, 1)[0].offsetFrames;
     console.log('numFrames: '+ numFrames);
     for (var i=0; i<numFrames; ++i) {
-//        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
-//        parseSpanDescription(buffer, fileOffset+frameIndex[i]);
+        //        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
+        //        parseSpanDescription(buffer, fileOffset+frameIndex[i]);
     }
-        parseSpanDescription(buffer, fileOffset+frameIndex[0]);
+    parseSpanDescription(buffer, fileOffset+frameIndex[0]);
 }
+
+// has rg,b, fields
+var palette;
+
+function parsePalette(buffer, fileOffset) {
+    var TColorEntry = Struct.create(
+                                    Struct.uint8("r"),
+                                    Struct.uint8("g"),
+                                    Struct.uint8("b")
+                                    );
+    palette = TColorEntry.readStructs(buffer, fileOffset, 256);
+    for (var c=0; c<palette.length; ++c)
+    {
+        palette[c].r=Math.round(palette[c].r * 255/63);
+        palette[c].g=Math.round(palette[c].g * 255/63);
+        palette[c].b=Math.round(palette[c].b * 255/63);
+    }
+    // there should be 11 more palettes here..
+}
+
+
 
 var imgLeft, imgRight,imgTop, imgBottom;
 function newImage(left,top,right,bottom) {
@@ -89,8 +104,8 @@ function readImage(x, y, data) {
     var SCALE=4;
     x+= -imgLeft; y+= -imgTop;
     for (var i=0; i<data.length; ++i) {
-        var color= data[i];
-        ctx.fillStyle="rgb("+color+","+color+","+0+")";
+        var color= palette[data[i]];
+        ctx.fillStyle="rgb("+color.r +","+color.g+","+color.b+")";
         ctx.fillRect(x*SCALE,y*SCALE,SCALE,SCALE);
         ++x;
     }
@@ -99,21 +114,21 @@ function readImage(x, y, data) {
 function parseSpanDescription(buffer, fileOffset)
 {
     var TFrameDesc = Struct.create(
-                                Struct.uint16("maxX"),
-                                Struct.uint16("minXinverted"),
-                                  Struct.uint16("minYinverted"),
+                                   Struct.uint16("maxX"),
+                                   Struct.uint16("minXinverted"),
+                                   Struct.uint16("minYinverted"),
                                    Struct.uint16("maxY")
-                                );
+                                   );
     var frameDesc = TFrameDesc.readStructs(buffer, fileOffset, 1)[0];
     newImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
     
     console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
-
+    
     var TSpan = Struct.create(
-                                  Struct.uint16("blockData"),
-                                  Struct.int16("x"),
-                                  Struct.int16("y")
-                                  );
+                              Struct.uint16("blockData"),
+                              Struct.int16("x"),
+                              Struct.int16("y")
+                              );
     var readPointer=fileOffset+8;
     while (true) {
         var currSpan = TSpan.readStructs(buffer, readPointer, 1)[0]; readPointer += 6;
