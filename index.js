@@ -4,42 +4,44 @@
 var ctx ;
 
 // current shape record to read. There are 300 in faces.vga
-var shape= 290;
-var MAX_SHAPE= 300;
+var currShape= 0;
+var MAX_SHAPE= 5;
+var FACES_VGA='U7/STATIC/FACES.VGA';
+var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
+var intervalId;
+
+// We just need one flx parser here
+var flxParser = new FlxParser();
 
 window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
     
-    readFile('U7/STATIC/PALETTES.FLX', parsePalette,0);
-    readFile('U7/STATIC/FACES.VGA', parseShp, shape++);
+    flxParser.readFile(PALETTES_FLX, 0, parsePalette);
+    flxParser.readFile(FACES_VGA, currShape++, parseShp);
   
-   // load next one
-   setInterval( function(){ if (shape<MAX_SHAPE) readFile('U7/STATIC/FACES.VGA',parseShp,shape++)},500);
+    // load next one
+    intervalId=setInterval( function(){
+                           if (currShape<MAX_SHAPE)
+                                flxParser.readFile(FACES_VGA, currShape++, parseShp);
+                           else
+                                clearInterval(intervalId);
+                           },500);
 };
-
-
-function readFile(filename, onRecordRead, recordNum) {
-    var request = new XMLHttpRequest();
-    
-    request.open( 'GET', filename, true );
-    request.responseType = 'arraybuffer';
-    
-    request.onload = function() {
-        console.log("file loaded");
-        parseFlx( request.response, onRecordRead, recordNum );
-    }
-    
-    request.send();
-}
 
 function hex(value) {
     return '0x' + value.toString(16);
 }
 
+//-----------------------------------------------------------------------------------------------------------------
 // File format from here:
 // http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
-function parseFlx(buffer, onRecordRead, recordNum) {
+function  FlxParser() {
+    // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
+    // this.memberVar= "abc";
+}
+FlxParser.prototype.parse= function(buffer, recordNum, onRecordRead)
+{
     var TFlxHdr = Struct.create(
                                 Struct.string("comment",80),
                                 Struct.uint32("magic1"),
@@ -62,6 +64,24 @@ function parseFlx(buffer, onRecordRead, recordNum) {
     onRecordRead(buffer, recordIndex[recordNum].byteOffset);
 }
 
+// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
+FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
+    var request = new XMLHttpRequest();
+    
+    request.open( 'GET', filename, true );
+    request.responseType = 'arraybuffer';
+    
+    var self=this;
+    request.onload = function() {
+        console.log("file loaded: "+filename);
+        self.parse( request.response, recordNum, onRecordRead  );
+    }
+    
+    request.send();
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+
 function parseShp(buffer, fileOffset) {
     var TShpStart = Struct.create(
                                         Struct.uint32("totalLength"), // relative to beginning of flx file
@@ -79,9 +99,9 @@ function parseShp(buffer, fileOffset) {
     console.log('numFrames: '+ numFrames);
     for (var i=0; i<numFrames; ++i) {
         //        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
-        //        parseSpanDescription(buffer, fileOffset+frameIndex[i]);
+        //        parseShapeFrame(buffer, fileOffset+frameIndex[i]);
     }
-    parseSpanDescription(buffer, fileOffset+frameIndex[0]);
+    parseShapeFrame(buffer, fileOffset+frameIndex[0]);
 }
 
 // has rg,b, fields
@@ -103,33 +123,42 @@ function parsePalette(buffer, fileOffset) {
     // there should be 11 more palettes here..
 }
 
-
-var imgLeft, imgRight,imgTop, imgBottom;
-var currImg;
-var currImgData;
-function newImage(left,top,right,bottom) {
+//-----------------------------------------------------------------------------------------------------------------
+function  RGBAImage(left,top,right,bottom) {
+    // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
+    // this.memberVar= "abc";
+    this.imgLeft=left;
+    this.imgRight=right;
+    this.imgTop=top;
+    this.imgBottom=bottom;
+    
     var imageWidth = right -left + 1;
     var imageHeight =bottom - top +1;
-    imgLeft= left; imgRight= right; imgTop= top; imgBottom= bottom;
-    currImg = ctx.createImageData(imageWidth, imageHeight);
-    currImgData= currImg.data;
+    
+    this.currImg = ctx.createImageData(imageWidth, imageHeight);
+    this.currImgData= this.currImg.data;
+    
 }
-
-function blitImage(x,y) {
-  ctx.putImageData(currImg, x,y);
-}
-
-function readImage(x, y, data) {
-    x+= -imgLeft; y+= -imgTop;
-    var pixel= (x+y*currImg.width)*4;
+RGBAImage.prototype.readImage= function(x, y, data) {
+    x+= -this.imgLeft; y+= -this.imgTop;
+    var pixel= (x+y*this.currImg.width)*4;
     for (var i=0; i<data.length; ++i) {
         var color= palette[data[i]];
-        currImgData[pixel+0]= color.r; currImgData[pixel+1]= color.g; currImgData[pixel+2]= color.b; currImgData[pixel+3]= 0xff;
+        this.currImgData[pixel+0]= color.r;
+        this.currImgData[pixel+1]= color.g;
+        this.currImgData[pixel+2]= color.b;
+        this.currImgData[pixel+3]= 0xff;
         pixel+=4;
     }
 }
+RGBAImage.prototype.blitImage= function(x,y) {
+    ctx.putImageData(this.currImg, x,y);
+}
 
-function parseSpanDescription(buffer, fileOffset)
+//-----------------------------------------------------------------------------------------------------------------
+
+
+function parseShapeFrame(buffer, fileOffset)
 {
     var TFrameDesc = Struct.create(
                                    Struct.uint16("maxX"),
@@ -138,7 +167,7 @@ function parseSpanDescription(buffer, fileOffset)
                                    Struct.uint16("maxY")
                                    );
     var frameDesc = TFrameDesc.readStructs(buffer, fileOffset, 1)[0];
-    newImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
+    var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
     
     console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
     
@@ -156,7 +185,7 @@ function parseSpanDescription(buffer, fileOffset)
         var isUncompressed = (currSpan.blockData & 1) == 0;
         if (isUncompressed) {
             var data = new Uint8Array(buffer, readPointer, blockLen); readPointer += blockLen;
-            readImage(currSpan.x, currSpan.y, data);
+            rgbaImage.readImage(currSpan.x, currSpan.y, data);
         } else {
             // Run Length Encoded
             var offsetX= currSpan.x;
@@ -169,19 +198,19 @@ function parseSpanDescription(buffer, fileOffset)
                 
                 if(RLEuncompressed) {
                     var data = new Uint8Array(buffer, readPointer, RLELength); readPointer += RLELength;
-                    readImage(offsetX, currSpan.y, data);
+                    rgbaImage.readImage(offsetX, currSpan.y, data);
                 } else {
                     var color = new Uint8Array(buffer, readPointer, 1)[0]; readPointer += 1;
                     var data = new Uint8Array(RLELength);
                     for (var c=0; c<RLELength; ++c) {
                         data[c]=color;
                     }
-                    readImage(offsetX, currSpan.y, data);
+                    rgbaImage.readImage(offsetX, currSpan.y, data);
                 }
                 
                 offsetX += RLELength;
             }
         }
     }
-   blitImage(0,0);
+   rgbaImage.blitImage(0,0);
 }
