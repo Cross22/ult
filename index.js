@@ -103,12 +103,19 @@ function parsePalette(buffer, fileOffset) {
 }
 
 
-
 var imgLeft, imgRight,imgTop, imgBottom;
+var currImg;
+var currImgData;
 function newImage(left,top,right,bottom) {
     var imageWidth = right -left + 1;
     var imageHeight =bottom - top +1;
     imgLeft= left; imgRight= right; imgTop= top; imgBottom= bottom;
+    currImg = ctx.createImageData(imageWidth, imageHeight);
+    currImgData= currImg.data;
+}
+
+function blitImage(x,y) {
+  ctx.putImageData(currImg, x,y);
 }
 
 function readImage(x, y, data) {
@@ -117,7 +124,9 @@ function readImage(x, y, data) {
     for (var i=0; i<data.length; ++i) {
         var color= palette[data[i]];
         ctx.fillStyle="rgb("+color.r +","+color.g+","+color.b+")";
-        ctx.fillRect(x*SCALE,y*SCALE,SCALE,SCALE);
+//        ctx.fillRect(x*SCALE,y*SCALE,SCALE,SCALE);
+        var pixel= (x+y*currImg.width)*4;
+        currImgData[pixel+0]= color.r; currImgData[pixel+1]= color.g; currImgData[pixel+2]= color.b; currImgData[pixel+3]= 0xff;
         ++x;
     }
 }
@@ -176,4 +185,5 @@ function parseSpanDescription(buffer, fileOffset)
             }
         }
     }
+   blitImage(0,0);
 }
