@@ -4,17 +4,18 @@
 var ctx ;
 
 // current shape record to read. There are 300 in faces.vga
-var shape=0;
+var shape= 290;
+var MAX_SHAPE= 300;
 
 window.onload=function(){
-    var canvas = document.getElementById("canvas");
+    var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
     
     readFile('U7/STATIC/PALETTES.FLX', parsePalette,0);
     readFile('U7/STATIC/FACES.VGA', parseShp, shape++);
   
    // load next one
-   setInterval( function(){ if (shape<300) readFile('U7/STATIC/FACES.VGA',parseShp,shape++)},500);
+   setInterval( function(){ if (shape<MAX_SHAPE) readFile('U7/STATIC/FACES.VGA',parseShp,shape++)},500);
 };
 
 
@@ -119,15 +120,12 @@ function blitImage(x,y) {
 }
 
 function readImage(x, y, data) {
-    var SCALE=4;
     x+= -imgLeft; y+= -imgTop;
+    var pixel= (x+y*currImg.width)*4;
     for (var i=0; i<data.length; ++i) {
         var color= palette[data[i]];
-        ctx.fillStyle="rgb("+color.r +","+color.g+","+color.b+")";
-//        ctx.fillRect(x*SCALE,y*SCALE,SCALE,SCALE);
-        var pixel= (x+y*currImg.width)*4;
         currImgData[pixel+0]= color.r; currImgData[pixel+1]= color.g; currImgData[pixel+2]= color.b; currImgData[pixel+3]= 0xff;
-        ++x;
+        pixel+=4;
     }
 }
 
