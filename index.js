@@ -7,14 +7,16 @@ var FACES_VGA='U7/STATIC/FACES.VGA';
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
 
 // has rg,b, fields
-var palette;
+var gPalette;
 
 //-----------------------------------------------------------------------------------------------------------------
+// Make a hex string out of value
 function hex(value) {
     return '0x' + value.toString(16);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
+// FLX is the basic container file format of U7. FlxParser is a base class that reads the table of contents
 // File format from here:
 // http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
 function  FlxParser() {
@@ -64,6 +66,7 @@ FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
 
 
 //-----------------------------------------------------------------------------------------------------------------
+// A simple image object that can be blitted later. Uses gPalette to map from indexed to RGBA
 function  RGBAImage(left,top,right,bottom) {
     // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
     // this.memberVar= "abc";
@@ -83,7 +86,7 @@ RGBAImage.prototype.readImage= function(x, y, data) {
     x+= -this.imgLeft; y+= -this.imgTop;
     var pixel= (x+y*this.currImg.width)*4;
     for (var i=0; i<data.length; ++i) {
-        var color= palette[data[i]];
+        var color= gPalette[data[i]];
         this.currImgData[pixel+0]= color.r;
         this.currImgData[pixel+1]= color.g;
         this.currImgData[pixel+2]= color.b;
@@ -96,15 +99,16 @@ RGBAImage.prototype.blitImage= function(x,y) {
 }
 
 //-----------------------------------------------------------------------------------------------------------------
-
+// Palette parsing
 function  PaletteParser() {
     FlxParser.apply(this, Array.prototype.slice.call(arguments));
+    this.onload= function(palette) {}
+    this.onRecordRead = this.parsePalette;
 }
 PaletteParser.prototype= new FlxParser();
 
-// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
-PaletteParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
-    this.onRecordRead = this.parsePalette;
+// Load file and set palette to palette stored in recordnum
+PaletteParser.prototype.readFile= function (filename, recordNum ) {
     this.sendRequest(filename, recordNum);
 }
 
@@ -114,19 +118,20 @@ PaletteParser.prototype.parsePalette= function (buffer, fileOffset) {
         Struct.uint8("g"),
         Struct.uint8("b")
     );
-    palette = TColorEntry.readStructs(buffer, fileOffset, 256);
-    for (var c=0; c<palette.length; ++c)
+    var pal = TColorEntry.readStructs(buffer, fileOffset, 256);
+    for (var c=0; c<pal.length; ++c)
     {
-        palette[c].r=Math.round(palette[c].r * 255/63);
-        palette[c].g=Math.round(palette[c].g * 255/63);
-        palette[c].b=Math.round(palette[c].b * 255/63);
+        pal[c].r <<= 2;
+        pal[c].g <<= 2;
+        pal[c].b <<= 2;
     }
     // there should be 11 more palettes here..
+    this.onload(pal);
 }
 
 
 //-----------------------------------------------------------------------------------------------------------------
-
+// Shape frame parsing
 function  ShapeParser() {
     FlxParser.apply(this, Array.prototype.slice.call(arguments));
     this.onload= function(rgbaImage) {}
@@ -235,7 +240,9 @@ window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
 
-//    palParser.onload= function() { }
+    palParser.onload= function(pal) {
+        gPalette=pal;
+    }
     palParser.readFile(PALETTES_FLX, 0);
     
     shpParser.onload= function(rgbaImage) { rgbaImage.blitImage(0,0); }
