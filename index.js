@@ -6,9 +6,6 @@ var ctx ;
 var FACES_VGA='U7/STATIC/FACES.VGA';
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
 
-// has rg,b, fields
-var gPalette;
-
 //-----------------------------------------------------------------------------------------------------------------
 // Make a hex string out of value
 function hex(value) {
@@ -78,20 +75,41 @@ function  RGBAImage(left,top,right,bottom) {
     var imageWidth = right -left + 1;
     var imageHeight =bottom - top +1;
     
-    this.currImg = ctx.createImageData(imageWidth, imageHeight);
+    this.currImg =    ctx.createImageData(imageWidth, imageHeight);
     this.currImgData= this.currImg.data;
-    
+    this.indexedData= new Array(imageWidth*imageHeight);
 }
-RGBAImage.prototype.readImage= function(x, y, data) {
+// store span in indexed data buffer
+RGBAImage.prototype.setSpan= function(x, y, data) {
     x+= -this.imgLeft; y+= -this.imgTop;
-    var pixel= (x+y*this.currImg.width)*4;
+    var indexPtr= (x+y*this.currImg.width);
     for (var i=0; i<data.length; ++i) {
-        var color= gPalette[data[i]];
-        this.currImgData[pixel+0]= color.r;
-        this.currImgData[pixel+1]= color.g;
-        this.currImgData[pixel+2]= color.b;
-        this.currImgData[pixel+3]= 0xff;
-        pixel+=4;
+        var color= data[i];
+        if (color==0xff) { // 0xff is transparent
+            indexPtr++;
+            continue;
+        } else {
+            this.indexedData[indexPtr++]= data[i];
+        }
+    }
+}
+// convert indexed data to RGBA buffer
+RGBAImage.prototype.applyPalette= function(palette) {
+    var len= this.indexedData.length;
+    var pixelPtr=0;
+    for (var i=0; i<len; ++i) {
+        // read from indexed data and get rgb values
+        var color= palette[this.indexedData[i]];
+        if (color===undefined) {
+            //alpha=0
+            this.currImgData[pixelPtr+3]= 0;
+            pixelPtr+=4;
+            continue;
+        }
+        this.currImgData[pixelPtr++]= color.r;
+        this.currImgData[pixelPtr++]= color.g;
+        this.currImgData[pixelPtr++]= color.b;
+        this.currImgData[pixelPtr++]= 0xff;
     }
 }
 RGBAImage.prototype.blitImage= function(x,y) {
@@ -193,7 +211,7 @@ ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
         var isUncompressed = (currSpan.blockData & 1) == 0;
         if (isUncompressed) {
             var data = new Uint8Array(buffer, readPointer, blockLen); readPointer += blockLen;
-            rgbaImage.readImage(currSpan.x, currSpan.y, data);
+            rgbaImage.setSpan(currSpan.x, currSpan.y, data);
         } else {
             // Run Length Encoded
             var offsetX= currSpan.x;
@@ -206,14 +224,14 @@ ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
 
                 if(RLEuncompressed) {
                     var data = new Uint8Array(buffer, readPointer, RLELength); readPointer += RLELength;
-                    rgbaImage.readImage(offsetX, currSpan.y, data);
+                    rgbaImage.setSpan(offsetX, currSpan.y, data);
                 } else {
                     var color = new Uint8Array(buffer, readPointer, 1)[0]; readPointer += 1;
                     var data = new Uint8Array(RLELength);
                     for (var c=0; c<RLELength; ++c) {
                         data[c]=color;
                     }
-                    rgbaImage.readImage(offsetX, currSpan.y, data);
+                    rgbaImage.setSpan(offsetX, currSpan.y, data);
                 }
 
                 offsetX += RLELength;
@@ -222,7 +240,6 @@ ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
     }
     
     this.onload(rgbaImage);
-//    rgbaImage.blitImage(0,0);
 }
 
 
@@ -240,12 +257,18 @@ window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
 
+    // has rg,b, fields
+    var palette;
+    
     palParser.onload= function(pal) {
-        gPalette=pal;
+        palette=pal;
     }
     palParser.readFile(PALETTES_FLX, 0);
     
-    shpParser.onload= function(rgbaImage) { rgbaImage.blitImage(0,0); }
+    shpParser.onload= function(rgbaImage) {
+        rgbaImage.applyPalette(palette);
+        rgbaImage.blitImage(0,0);
+    }
     shpParser.readFile(FACES_VGA, currShape++);
     
 
