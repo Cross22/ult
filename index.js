@@ -157,12 +157,12 @@ function  ShapeParser() {
 ShapeParser.prototype= new FlxParser();
 
 // Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
-ShapeParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
-    this.onRecordRead = this.parseFrameIndex;
+ShapeParser.prototype.readFile= function (filename, recordNum, frameNum) {
+    this.onRecordRead = function(buffer, fileOffset){ this.parseFrameIndex(buffer, fileOffset, frameNum); }
     this.sendRequest(filename, recordNum);
 }
 
-ShapeParser.prototype.parseFrameIndex= function (buffer, fileOffset) {
+ShapeParser.prototype.parseFrameIndex= function (buffer, fileOffset, frameNum) {
     var TShpStart = Struct.create(
         Struct.uint32("totalLength"), // relative to beginning of flx file
         Struct.uint32("firstFrameOffset")
@@ -177,11 +177,11 @@ ShapeParser.prototype.parseFrameIndex= function (buffer, fileOffset) {
     );
     var frameIndex = TShpHdr.readStructs(buffer, fileOffset, 1)[0].offsetFrames;
     console.log('numFrames: '+ numFrames);
-    for (var i=0; i<numFrames; ++i) {
-        //        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
-        //        parseShapeFrame(buffer, fileOffset+frameIndex[i]);
+    if (frameNum>=numFrames) {
+        console.log('frame request exceeded numFrames');
+        frameNum= numFrames-1;
     }
-    this.parseShapeFrame(buffer, fileOffset+frameIndex[0]);
+    this.parseShapeFrame(buffer, fileOffset+frameIndex[frameNum]);
 }
 
 ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
@@ -245,39 +245,52 @@ ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
 
 //-----------------------------------------------------------------------------------------------------------------
 // current shape record to read. There are 300 in faces.vga
-var currShape= 0;
-var MAX_SHAPE= 5;
+var currFace= 0;
+var MAX_FACE= 5;
 var intervalId;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
 var shpParser = new ShapeParser();
 
+var arrFaceImages = new Array(MAX_FACE);
+
+function drawFaces() {
+    currFace=0;
+    intervalId=setInterval( function(){
+                           if (currFace<MAX_FACE)
+                            arrFaceImages[currFace++].blitImage(0,0);
+                           else
+                            clearInterval(intervalId);
+                           
+                           },500);
+}
+
+function loadFaces(palette) {
+    // Load faces async
+    shpParser.onload= function(rgbaImage) {
+        rgbaImage.applyPalette(palette);
+        arrFaceImages[currFace++]=rgbaImage;
+        if (currFace>=MAX_FACE)
+            drawFaces();
+    }
+    
+    var frame=1; // some shapes have multiple frames/expressions
+    for (var record=0; record<MAX_FACE; ++record) {
+        shpParser.readFile(FACES_VGA, record, frame);
+    }
+}
+
 window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
 
-    // has rg,b, fields
-    var palette;
-    
+    // Load Palette #0 first
+    var palette; // has rg,b, fields
     palParser.onload= function(pal) {
         palette=pal;
+        loadFaces(palette);
     }
     palParser.readFile(PALETTES_FLX, 0);
-    
-    shpParser.onload= function(rgbaImage) {
-        rgbaImage.applyPalette(palette);
-        rgbaImage.blitImage(0,0);
-    }
-    shpParser.readFile(FACES_VGA, currShape++);
-    
-
-    // load next one
-    intervalId=setInterval( function(){
-        if (currShape<MAX_SHAPE)
-            shpParser.readFile(FACES_VGA, currShape++);
-        else
-            clearInterval(intervalId);
-    },500);
 };
 
