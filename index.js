@@ -10,25 +10,6 @@ var FACES_VGA='U7/STATIC/FACES.VGA';
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
 var intervalId;
 
-// We just need one flx parser here
-var flxParser = new FlxParser();
-
-window.onload=function(){
-    var canvas = document.getElementById("mycanvas");
-    ctx = canvas.getContext("2d");
-    
-    flxParser.readFile(PALETTES_FLX, 0, parsePalette);
-    flxParser.readFile(FACES_VGA, currShape++, parseShp);
-  
-    // load next one
-    intervalId=setInterval( function(){
-                           if (currShape<MAX_SHAPE)
-                                flxParser.readFile(FACES_VGA, currShape++, parseShp);
-                           else
-                                clearInterval(intervalId);
-                           },500);
-};
-
 function hex(value) {
     return '0x' + value.toString(16);
 }
@@ -53,14 +34,10 @@ FlxParser.prototype.parse= function(buffer, recordNum, onRecordRead)
                                         Struct.uint32("byteLength")
                                         );
     var hdr= TFlxHdr.readStructs(buffer, 0, 1)[0];
-    console.log('Magic1 should be 0xffff 1a00. Found: ' + hex(hdr.magic1));
+//    console.log('Magic1 should be 0xffff 1a00. Found: ' + hex(hdr.magic1));
     console.log('Num records in file: '+hdr.numRecords);
     // Read all record indices
     var recordIndex = TFlxRecordIndex.readStructs(buffer, 0x80, hdr.numRecords);
-    for (var i=0; i<10; ++i) {
-        //        console.log( i + ': ' + hex(recordIndex[i].byteOffset)+ ' ' + hex(recordIndex[i].byteLength) );
-        //        parseShp(buffer, recordIndex[i].byteOffset);
-    }
     onRecordRead(buffer, recordIndex[recordNum].byteOffset);
 }
 
@@ -81,28 +58,6 @@ FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
 }
 
 //-----------------------------------------------------------------------------------------------------------------
-
-function parseShp(buffer, fileOffset) {
-    var TShpStart = Struct.create(
-                                        Struct.uint32("totalLength"), // relative to beginning of flx file
-                                        Struct.uint32("firstFrameOffset")
-                                        );
-
-    var shpStart = TShpStart.readStructs(buffer, fileOffset, 1)[0];
-    var firstFrameOffset    = shpStart.firstFrameOffset;
-    var numFrames = (firstFrameOffset - 4) / 4;
-    var TShpHdr = Struct.create(
-                                Struct.uint32("totalLength"),
-                                Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
-                                );
-    var frameIndex = TShpHdr.readStructs(buffer, fileOffset, 1)[0].offsetFrames;
-    console.log('numFrames: '+ numFrames);
-    for (var i=0; i<numFrames; ++i) {
-        //        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
-        //        parseShapeFrame(buffer, fileOffset+frameIndex[i]);
-    }
-    parseShapeFrame(buffer, fileOffset+frameIndex[0]);
-}
 
 // has rg,b, fields
 var palette;
@@ -214,3 +169,90 @@ function parseShapeFrame(buffer, fileOffset)
     }
    rgbaImage.blitImage(0,0);
 }
+
+//-----------------------------------------------------------------------------------------------------------------
+
+function  ShapeParser() {
+ FlxParser.apply(this, Array.prototype.slice.call(arguments));
+}
+ShapeParser.prototype= new FlxParser();
+ShapeParser.prototype.parse= function(buffer, recordNum)
+{
+    var TFlxHdr = Struct.create(
+        Struct.string("comment",80),
+        Struct.uint32("magic1"),
+        Struct.uint32("numRecords"),
+        Struct.array("magic2", Struct.uint32(),10)
+    );
+    var TFlxRecordIndex = Struct.create(
+        Struct.uint32("byteOffset"), // relative to beginning of flx file
+        Struct.uint32("byteLength")
+    );
+    var hdr= TFlxHdr.readStructs(buffer, 0, 1)[0];
+    console.log('Magic1 should be 0xffff 1a00. Found: ' + hex(hdr.magic1));
+    console.log('Num records in file: '+hdr.numRecords);
+    // Read all record indices
+    var recordIndex = TFlxRecordIndex.readStructs(buffer, 0x80, hdr.numRecords);
+    this.parseFrameIndex(buffer, recordIndex[recordNum].byteOffset);
+}
+ShapeParser.prototype.readFile= function (filename, recordNum) {
+        var request = new XMLHttpRequest();
+
+        request.open( 'GET', filename, true );
+        request.responseType = 'arraybuffer';
+
+        var self=this;
+        request.onload = function() {
+            console.log("file loaded: "+filename);
+            self.parse( request.response, recordNum  );
+        }
+
+        request.send();
+}
+    
+ShapeParser.prototype.parseFrameIndex= function (buffer, fileOffset) {
+    var TShpStart = Struct.create(
+        Struct.uint32("totalLength"), // relative to beginning of flx file
+        Struct.uint32("firstFrameOffset")
+    );
+
+    var shpStart = TShpStart.readStructs(buffer, fileOffset, 1)[0];
+    var firstFrameOffset    = shpStart.firstFrameOffset;
+    var numFrames = (firstFrameOffset - 4) / 4;
+    var TShpHdr = Struct.create(
+        Struct.uint32("totalLength"),
+        Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
+    );
+    var frameIndex = TShpHdr.readStructs(buffer, fileOffset, 1)[0].offsetFrames;
+    console.log('numFrames: '+ numFrames);
+    for (var i=0; i<numFrames; ++i) {
+        //        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
+        //        parseShapeFrame(buffer, fileOffset+frameIndex[i]);
+    }
+    parseShapeFrame(buffer, fileOffset+frameIndex[0]);
+}
+
+
+
+//-----------------------------------------------------------------------------------------------------------------
+
+// We just need one flx parser here
+var flxParser = new FlxParser();
+var shpParser = new ShapeParser();
+
+window.onload=function(){
+    var canvas = document.getElementById("mycanvas");
+    ctx = canvas.getContext("2d");
+
+    flxParser.readFile(PALETTES_FLX, 0, parsePalette);
+    shpParser.readFile(FACES_VGA, currShape++);
+
+    // load next one
+    intervalId=setInterval( function(){
+        if (currShape<MAX_SHAPE)
+            shpParser.readFile(FACES_VGA, currShape++);
+        else
+            clearInterval(intervalId);
+    },500);
+};
+
