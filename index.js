@@ -10,6 +10,10 @@ var FACES_VGA='U7/STATIC/FACES.VGA';
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
 var intervalId;
 
+// has rg,b, fields
+var palette;
+
+//-----------------------------------------------------------------------------------------------------------------
 function hex(value) {
     return '0x' + value.toString(16);
 }
@@ -21,7 +25,7 @@ function  FlxParser() {
     // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
     // this.memberVar= "abc";
 }
-FlxParser.prototype.parse= function(buffer, recordNum, onRecordRead)
+FlxParser.prototype.parse= function(buffer, recordNum)
 {
     var TFlxHdr = Struct.create(
                                 Struct.string("comment",80),
@@ -38,45 +42,31 @@ FlxParser.prototype.parse= function(buffer, recordNum, onRecordRead)
     console.log('Num records in file: '+hdr.numRecords);
     // Read all record indices
     var recordIndex = TFlxRecordIndex.readStructs(buffer, 0x80, hdr.numRecords);
-    onRecordRead(buffer, recordIndex[recordNum].byteOffset);
+    this.onRecordRead(buffer, recordIndex[recordNum].byteOffset);
 }
 
-// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
-FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
+FlxParser.prototype.sendRequest= function (filename, recordNum) {
     var request = new XMLHttpRequest();
-    
+
     request.open( 'GET', filename, true );
     request.responseType = 'arraybuffer';
-    
+
     var self=this;
     request.onload = function() {
         console.log("file loaded: "+filename);
-        self.parse( request.response, recordNum, onRecordRead  );
+        self.parse( request.response, recordNum  );
     }
-    
+
     request.send();
 }
 
-//-----------------------------------------------------------------------------------------------------------------
 
-// has rg,b, fields
-var palette;
-
-function parsePalette(buffer, fileOffset) {
-    var TColorEntry = Struct.create(
-                                    Struct.uint8("r"),
-                                    Struct.uint8("g"),
-                                    Struct.uint8("b")
-                                    );
-    palette = TColorEntry.readStructs(buffer, fileOffset, 256);
-    for (var c=0; c<palette.length; ++c)
-    {
-        palette[c].r=Math.round(palette[c].r * 255/63);
-        palette[c].g=Math.round(palette[c].g * 255/63);
-        palette[c].b=Math.round(palette[c].b * 255/63);
-    }
-    // there should be 11 more palettes here..
+// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
+FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
+    this.onRecordRead = onRecordRead;
+    this.sendRequest(filename, recordNum);
 }
+
 
 //-----------------------------------------------------------------------------------------------------------------
 function  RGBAImage(left,top,right,bottom) {
@@ -112,63 +102,33 @@ RGBAImage.prototype.blitImage= function(x,y) {
 
 //-----------------------------------------------------------------------------------------------------------------
 
-
-function parseShapeFrame(buffer, fileOffset)
-{
-    var TFrameDesc = Struct.create(
-                                   Struct.uint16("maxX"),
-                                   Struct.uint16("minXinverted"),
-                                   Struct.uint16("minYinverted"),
-                                   Struct.uint16("maxY")
-                                   );
-    var frameDesc = TFrameDesc.readStructs(buffer, fileOffset, 1)[0];
-    var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
-    
-    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
-    
-    var TSpan = Struct.create(
-                              Struct.uint16("blockData"),
-                              Struct.int16("x"),
-                              Struct.int16("y")
-                              );
-    var readPointer=fileOffset+8;
-    while (true) {
-        var currSpan = TSpan.readStructs(buffer, readPointer, 1)[0]; readPointer += 6;
-        if (currSpan.blockData==0)
-            break;
-        var blockLen = currSpan.blockData >> 1;
-        var isUncompressed = (currSpan.blockData & 1) == 0;
-        if (isUncompressed) {
-            var data = new Uint8Array(buffer, readPointer, blockLen); readPointer += blockLen;
-            rgbaImage.readImage(currSpan.x, currSpan.y, data);
-        } else {
-            // Run Length Encoded
-            var offsetX= currSpan.x;
-            var endX = offsetX + blockLen;
-            
-            while (offsetX < endX) {
-                var RLEHeader = new Uint8Array(buffer, readPointer, 1)[0]; readPointer += 1;
-                var RLELength = RLEHeader >> 1;
-                var RLEuncompressed = (RLEHeader & 1)==0;
-                
-                if(RLEuncompressed) {
-                    var data = new Uint8Array(buffer, readPointer, RLELength); readPointer += RLELength;
-                    rgbaImage.readImage(offsetX, currSpan.y, data);
-                } else {
-                    var color = new Uint8Array(buffer, readPointer, 1)[0]; readPointer += 1;
-                    var data = new Uint8Array(RLELength);
-                    for (var c=0; c<RLELength; ++c) {
-                        data[c]=color;
-                    }
-                    rgbaImage.readImage(offsetX, currSpan.y, data);
-                }
-                
-                offsetX += RLELength;
-            }
-        }
-    }
-   rgbaImage.blitImage(0,0);
+function  PaletteParser() {
+    FlxParser.apply(this, Array.prototype.slice.call(arguments));
 }
+PaletteParser.prototype= new FlxParser();
+
+// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
+PaletteParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
+    this.onRecordRead = this.parsePalette;
+    this.sendRequest(filename, recordNum);
+}
+
+PaletteParser.prototype.parsePalette= function (buffer, fileOffset) {
+    var TColorEntry = Struct.create(
+        Struct.uint8("r"),
+        Struct.uint8("g"),
+        Struct.uint8("b")
+    );
+    palette = TColorEntry.readStructs(buffer, fileOffset, 256);
+    for (var c=0; c<palette.length; ++c)
+    {
+        palette[c].r=Math.round(palette[c].r * 255/63);
+        palette[c].g=Math.round(palette[c].g * 255/63);
+        palette[c].b=Math.round(palette[c].b * 255/63);
+    }
+    // there should be 11 more palettes here..
+}
+
 
 //-----------------------------------------------------------------------------------------------------------------
 
@@ -176,40 +136,13 @@ function  ShapeParser() {
  FlxParser.apply(this, Array.prototype.slice.call(arguments));
 }
 ShapeParser.prototype= new FlxParser();
-ShapeParser.prototype.parse= function(buffer, recordNum)
-{
-    var TFlxHdr = Struct.create(
-        Struct.string("comment",80),
-        Struct.uint32("magic1"),
-        Struct.uint32("numRecords"),
-        Struct.array("magic2", Struct.uint32(),10)
-    );
-    var TFlxRecordIndex = Struct.create(
-        Struct.uint32("byteOffset"), // relative to beginning of flx file
-        Struct.uint32("byteLength")
-    );
-    var hdr= TFlxHdr.readStructs(buffer, 0, 1)[0];
-    console.log('Magic1 should be 0xffff 1a00. Found: ' + hex(hdr.magic1));
-    console.log('Num records in file: '+hdr.numRecords);
-    // Read all record indices
-    var recordIndex = TFlxRecordIndex.readStructs(buffer, 0x80, hdr.numRecords);
-    this.parseFrameIndex(buffer, recordIndex[recordNum].byteOffset);
+
+// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
+ShapeParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
+    this.onRecordRead = this.parseFrameIndex;
+    this.sendRequest(filename, recordNum);
 }
-ShapeParser.prototype.readFile= function (filename, recordNum) {
-        var request = new XMLHttpRequest();
 
-        request.open( 'GET', filename, true );
-        request.responseType = 'arraybuffer';
-
-        var self=this;
-        request.onload = function() {
-            console.log("file loaded: "+filename);
-            self.parse( request.response, recordNum  );
-        }
-
-        request.send();
-}
-    
 ShapeParser.prototype.parseFrameIndex= function (buffer, fileOffset) {
     var TShpStart = Struct.create(
         Struct.uint32("totalLength"), // relative to beginning of flx file
@@ -229,22 +162,78 @@ ShapeParser.prototype.parseFrameIndex= function (buffer, fileOffset) {
         //        console.log( i + ' frame at offset ' + hex(frameIndex[i]) );
         //        parseShapeFrame(buffer, fileOffset+frameIndex[i]);
     }
-    parseShapeFrame(buffer, fileOffset+frameIndex[0]);
+    this.parseShapeFrame(buffer, fileOffset+frameIndex[0]);
 }
 
+ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
+{
+    var TFrameDesc = Struct.create(
+        Struct.uint16("maxX"),
+        Struct.uint16("minXinverted"),
+        Struct.uint16("minYinverted"),
+        Struct.uint16("maxY")
+    );
+    var frameDesc = TFrameDesc.readStructs(buffer, fileOffset, 1)[0];
+    var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
+
+    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
+
+    var TSpan = Struct.create(
+        Struct.uint16("blockData"),
+        Struct.int16("x"),
+        Struct.int16("y")
+    );
+    var readPointer=fileOffset+8;
+    while (true) {
+        var currSpan = TSpan.readStructs(buffer, readPointer, 1)[0]; readPointer += 6;
+        if (currSpan.blockData==0)
+            break;
+        var blockLen = currSpan.blockData >> 1;
+        var isUncompressed = (currSpan.blockData & 1) == 0;
+        if (isUncompressed) {
+            var data = new Uint8Array(buffer, readPointer, blockLen); readPointer += blockLen;
+            rgbaImage.readImage(currSpan.x, currSpan.y, data);
+        } else {
+            // Run Length Encoded
+            var offsetX= currSpan.x;
+            var endX = offsetX + blockLen;
+
+            while (offsetX < endX) {
+                var RLEHeader = new Uint8Array(buffer, readPointer, 1)[0]; readPointer += 1;
+                var RLELength = RLEHeader >> 1;
+                var RLEuncompressed = (RLEHeader & 1)==0;
+
+                if(RLEuncompressed) {
+                    var data = new Uint8Array(buffer, readPointer, RLELength); readPointer += RLELength;
+                    rgbaImage.readImage(offsetX, currSpan.y, data);
+                } else {
+                    var color = new Uint8Array(buffer, readPointer, 1)[0]; readPointer += 1;
+                    var data = new Uint8Array(RLELength);
+                    for (var c=0; c<RLELength; ++c) {
+                        data[c]=color;
+                    }
+                    rgbaImage.readImage(offsetX, currSpan.y, data);
+                }
+
+                offsetX += RLELength;
+            }
+        }
+    }
+    rgbaImage.blitImage(0,0);
+}
 
 
 //-----------------------------------------------------------------------------------------------------------------
 
 // We just need one flx parser here
-var flxParser = new FlxParser();
+var palParser = new PaletteParser();
 var shpParser = new ShapeParser();
 
 window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
 
-    flxParser.readFile(PALETTES_FLX, 0, parsePalette);
+    palParser.readFile(PALETTES_FLX, 0);
     shpParser.readFile(FACES_VGA, currShape++);
 
     // load next one
