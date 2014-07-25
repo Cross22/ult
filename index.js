@@ -3,12 +3,8 @@
 
 var ctx ;
 
-// current shape record to read. There are 300 in faces.vga
-var currShape= 0;
-var MAX_SHAPE= 5;
 var FACES_VGA='U7/STATIC/FACES.VGA';
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
-var intervalId;
 
 // has rg,b, fields
 var palette;
@@ -23,7 +19,6 @@ function hex(value) {
 // http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
 function  FlxParser() {
     // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
-    // this.memberVar= "abc";
 }
 FlxParser.prototype.parse= function(buffer, recordNum)
 {
@@ -133,7 +128,8 @@ PaletteParser.prototype.parsePalette= function (buffer, fileOffset) {
 //-----------------------------------------------------------------------------------------------------------------
 
 function  ShapeParser() {
- FlxParser.apply(this, Array.prototype.slice.call(arguments));
+    FlxParser.apply(this, Array.prototype.slice.call(arguments));
+    this.onload= function(rgbaImage) {}
 }
 ShapeParser.prototype= new FlxParser();
 
@@ -219,11 +215,17 @@ ShapeParser.prototype.parseShapeFrame= function (buffer, fileOffset)
             }
         }
     }
-    rgbaImage.blitImage(0,0);
+    
+    this.onload(rgbaImage);
+//    rgbaImage.blitImage(0,0);
 }
 
 
 //-----------------------------------------------------------------------------------------------------------------
+// current shape record to read. There are 300 in faces.vga
+var currShape= 0;
+var MAX_SHAPE= 5;
+var intervalId;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
@@ -233,8 +235,12 @@ window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
 
+//    palParser.onload= function() { }
     palParser.readFile(PALETTES_FLX, 0);
+    
+    shpParser.onload= function(rgbaImage) { rgbaImage.blitImage(0,0); }
     shpParser.readFile(FACES_VGA, currShape++);
+    
 
     // load next one
     intervalId=setInterval( function(){
