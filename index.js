@@ -85,15 +85,28 @@ function  RGBAImage(left,top,right,bottom) {
     
     var imageWidth = right -left + 1;
     var imageHeight =bottom - top +1;
-    
-    this.currImg =    ctx.createImageData(imageWidth, imageHeight);
-    this.currImgData= this.currImg.data;
+
+    this.buffer= this.createBuffer(imageWidth,imageHeight);
     this.indexedData= new Array(imageWidth*imageHeight);
 }
+
+// putImageData does not support blending/transparency, and has terrible perf on Chrome. apparently it is faster
+// to create secondary canvas elements and blit them to the primary using drawImage
+RGBAImage.prototype.createBuffer= function(width,height) {
+    var buffer = new Object();
+    buffer.canvas = document.createElement("canvas");
+    buffer.canvas.width = width;
+    buffer.canvas.height = height;
+    buffer.context = buffer.canvas.getContext("2d");
+    buffer.imageData = buffer.context.createImageData(width, height);
+    
+    return buffer;
+}
+
 // store span in indexed data buffer
 RGBAImage.prototype.setSpan= function(x, y, data) {
     x+= -this.imgLeft; y+= -this.imgTop;
-    var indexPtr= (x+y*this.currImg.width);
+    var indexPtr= (x+y*this.buffer.canvas.width);
     for (var i=0; i<data.length; ++i) {
         var color= data[i];
         if (color==0xff) { // 0xff is transparent
@@ -106,6 +119,9 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
 }
 // convert indexed data to RGBA buffer
 RGBAImage.prototype.applyPalette= function(palette) {
+    // first write to imagedata.data, then copy that to canvas
+    // in blitImage we then draw our private canvas to the main canvas..phew
+    var data = this.buffer.imageData.data;
     var len= this.indexedData.length;
     var pixelPtr=0;
     for (var i=0; i<len; ++i) {
@@ -113,18 +129,19 @@ RGBAImage.prototype.applyPalette= function(palette) {
         var color= palette[this.indexedData[i]];
         if (color===undefined) {
             //alpha=0
-            this.currImgData[pixelPtr+3]= 0;
             pixelPtr+=4;
             continue;
         }
-        this.currImgData[pixelPtr++]= color.r;
-        this.currImgData[pixelPtr++]= color.g;
-        this.currImgData[pixelPtr++]= color.b;
-        this.currImgData[pixelPtr++]= 0xff;
+        data[pixelPtr++]= color.r;
+        data[pixelPtr++]= color.g;
+        data[pixelPtr++]= color.b;
+        data[pixelPtr++]= 0xff;
     }
+    this.buffer.context.putImageData(this.buffer.imageData, 0, 0);
 }
+
 RGBAImage.prototype.blitImage= function(x,y) {
-    ctx.putImageData(this.currImg, x,y);
+    ctx.drawImage(this.buffer.canvas, x,y);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
