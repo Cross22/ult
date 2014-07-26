@@ -3,6 +3,7 @@
 
 var ctx ;
 
+var SHAPES_VGA='U7/STATIC/SHAPES.VGA';
 var FACES_VGA='U7/STATIC/FACES.VGA';
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
 
@@ -32,14 +33,18 @@ FlxParser.prototype.parse= function(recordNum)
                                         Struct.uint32("byteLength")
                                         );
     var hdr= TFlxHdr.readStructs(this.buffer, 0, 1)[0];
-//    console.log('Magic1 should be 0xffff 1a00. Found: ' + hex(hdr.magic1));
-    console.log('Num records in file: '+hdr.numRecords);
+    if (hdr.magic1!=0xffff1a00) {
+        console.log('Magic1 is not 0xffff 1a00. Found: ' + hex(hdr.magic1));
+        return;
+    }
+//    console.log('Num records in file: '+hdr.numRecords);
     // Read all record indices
     var recordIndex = TFlxRecordIndex.readStructs(this.buffer, 0x80, hdr.numRecords);
-    this.onRecordRead(recordIndex[recordNum].byteOffset);
+    this.onRecordRead(recordIndex[recordNum].byteOffset,recordIndex[recordNum].byteLength);
 }
 
 FlxParser.prototype.sendRequest= function (filename, recordNum) {
+    // do we need to read the file first?
     if (this.buffer===undefined)
     {
         var request = new XMLHttpRequest();
@@ -49,14 +54,14 @@ FlxParser.prototype.sendRequest= function (filename, recordNum) {
         
         var self=this;
         request.onload = function() {
-            console.log("file loaded: "+filename);
+//            console.log("file loaded: "+filename);
             self.buffer= request.response;
             self.parse( recordNum  );
         }
         request.send();
     } else {
         // file is already loaded. reuse buffer
-        self.parse( recordNum  );
+        this.parse( recordNum  );
     }
 }
 
@@ -136,7 +141,7 @@ PaletteParser.prototype.readFile= function (filename, recordNum ) {
     this.sendRequest(filename, recordNum);
 }
 
-PaletteParser.prototype.parsePalette= function (fileOffset) {
+PaletteParser.prototype.parsePalette= function (fileOffset,byteLength) {
     var TColorEntry = Struct.create(
         Struct.uint8("r"),
         Struct.uint8("g"),
@@ -164,30 +169,37 @@ ShapeParser.prototype= new FlxParser();
 
 // Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
 ShapeParser.prototype.readFile= function (filename, recordNum, frameNum) {
-    this.onRecordRead = function(fileOffset){ this.parseFrameIndex(fileOffset, frameNum); }
+    this.onRecordRead = function(fileOffset,byteLength){ this.parseFrameIndex(fileOffset, byteLength, frameNum); }
     this.sendRequest(filename, recordNum);
 }
 
-ShapeParser.prototype.parseFrameIndex= function (fileOffset, frameNum) {
+ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNum) {
     var TShpStart = Struct.create(
         Struct.uint32("totalLength"), // relative to beginning of flx file
         Struct.uint32("firstFrameOffset")
     );
 
     var shpStart = TShpStart.readStructs(this.buffer, fileOffset, 1)[0];
-    var firstFrameOffset    = shpStart.firstFrameOffset;
-    var numFrames = (firstFrameOffset - 4) / 4;
-    var TShpHdr = Struct.create(
-        Struct.uint32("totalLength"),
-        Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
-    );
-    var frameIndex = TShpHdr.readStructs(this.buffer, fileOffset, 1)[0].offsetFrames;
-    console.log('numFrames: '+ numFrames);
-    if (frameNum>=numFrames) {
-        console.log('frame request exceeded numFrames');
-        frameNum= numFrames-1;
+    // A default shaper header has the expected length. extended headers will have a different length listed here
+    if (shpStart.totalLength==byteLength) {
+        var firstFrameOffset    = shpStart.firstFrameOffset;
+        var numFrames = (firstFrameOffset - 4) / 4;
+        var TShpHdr = Struct.create(
+                                    Struct.uint32("totalLength"),
+                                    Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
+                                    );
+        var frameIndex = TShpHdr.readStructs(this.buffer, fileOffset, 1)[0].offsetFrames;
+//        console.log('numFrames: '+ numFrames);
+        if (frameNum>=numFrames) {
+            console.log('frame request exceeded numFrames');
+            frameNum= numFrames-1;
+        }
+        this.parseShapeFrame(fileOffset+frameIndex[frameNum]);
+    } else {
+        // extended header found
+        console.log('extended header found');
+        this.onload(null); // null == error
     }
-    this.parseShapeFrame(fileOffset+frameIndex[frameNum]);
 }
 
 ShapeParser.prototype.parseShapeFrame= function (fileOffset)
@@ -201,7 +213,7 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
     var frameDesc = TFrameDesc.readStructs(this.buffer, fileOffset, 1)[0];
     var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
 
-    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
+//    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
 
     var TSpan = Struct.create(
         Struct.uint16("blockData"),
@@ -265,26 +277,52 @@ function drawFaces() {
     currFace=0;
     intervalId=setInterval( function(){
                            if (currFace<MAX_FACE)
-                            arrFaceImages[currFace++].blitImage(0,0);
-                           else
-                            clearInterval(intervalId);
-                           
+                           {
+                           var img= arrFaceImages[currFace++];
+                           if (img)
+                           img.blitImage(0,0);
+                           } else {
+                           clearInterval(intervalId);
+                           }
                            },500);
 }
 
 function loadFaces(palette) {
-    // Load faces async
+    var filename= FACES_VGA;
+    var frame=0; // some shapes have multiple frames/expressions
+    currFace=0;
+    
     shpParser.onload= function(rgbaImage) {
-        rgbaImage.applyPalette(palette);
-        arrFaceImages[currFace++]=rgbaImage;
-        if (currFace>=MAX_FACE)
+        if (rgbaImage) {
+            rgbaImage.applyPalette(palette);
+            arrFaceImages[currFace]=rgbaImage;
+        }
+        if (++currFace>=MAX_FACE)
             drawFaces();
+        else
+            shpParser.readFile(filename, currFace, frame);
     }
     
-    var frame=1; // some shapes have multiple frames/expressions
-    for (var record=0; record<MAX_FACE; ++record) {
-        shpParser.readFile(FACES_VGA, record, frame);
+    shpParser.readFile(filename, currFace, frame);
+}
+
+function loadShapes(palette) {
+    var filename= SHAPES_VGA;
+    var frame=0; // some shapes have multiple frames/expressions
+    currFace=0;
+    
+    shpParser.onload= function(rgbaImage) {
+        if (rgbaImage) {
+            rgbaImage.applyPalette(palette);
+            arrFaceImages[currFace]=rgbaImage;
+        }
+        if (++currFace>=MAX_FACE)
+            drawFaces();
+        else
+            shpParser.readFile(filename, currFace, frame);
     }
+    
+    shpParser.readFile(filename, currFace, frame);
 }
 
 window.onload=function(){
@@ -296,6 +334,7 @@ window.onload=function(){
     palParser.onload= function(pal) {
         palette=pal;
         loadFaces(palette);
+//        loadShapes(palette);
     }
     palParser.readFile(PALETTES_FLX, 0);
 };
