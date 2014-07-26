@@ -40,19 +40,24 @@ FlxParser.prototype.parse= function(recordNum)
 }
 
 FlxParser.prototype.sendRequest= function (filename, recordNum) {
-    var request = new XMLHttpRequest();
-
-    request.open( 'GET', filename, true );
-    request.responseType = 'arraybuffer';
-
-    var self=this;
-    request.onload = function() {
-        console.log("file loaded: "+filename);
-        self.buffer= request.response;
+    if (this.buffer===undefined)
+    {
+        var request = new XMLHttpRequest();
+        
+        request.open( 'GET', filename, true );
+        request.responseType = 'arraybuffer';
+        
+        var self=this;
+        request.onload = function() {
+            console.log("file loaded: "+filename);
+            self.buffer= request.response;
+            self.parse( recordNum  );
+        }
+        request.send();
+    } else {
+        // file is already loaded. reuse buffer
         self.parse( recordNum  );
     }
-
-    request.send();
 }
 
 
