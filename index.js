@@ -4,7 +4,7 @@
 var ctx ;
 
 // 8x8 Tiles: 0..149,
-// Regular shapes: 150..300, excluding: 153,158,159,160,161,168,186,187,194
+// Regular shapes: 150..1000, excluding: 153,158,159,160,161,168,186,187,194 and several others
 var SHAPES_VGA='U7/STATIC/SHAPES.VGA';
 var FACES_VGA='U7/STATIC/FACES.VGA';   //0..292
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
@@ -101,8 +101,6 @@ RGBAImage.prototype.createBuffer= function(width,height) {
     buffer.canvas = document.createElement("canvas");
     buffer.canvas.width = width;
     buffer.canvas.height = height;
-    buffer.context = buffer.canvas.getContext("2d");
-    buffer.imageData = buffer.context.createImageData(width, height);
     
     return buffer;
 }
@@ -125,7 +123,9 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
 RGBAImage.prototype.applyPalette= function(palette) {
     // first write to imagedata.data, then copy that to canvas
     // in blitImage we then draw our private canvas to the main canvas..phew
-    var data = this.buffer.imageData.data;
+    var bufferContext = this.buffer.canvas.getContext("2d");
+    var imageData = bufferContext.createImageData(this.buffer.canvas.width, this.buffer.canvas.height);
+    var data = imageData.data;
     var len= this.indexedData.length;
     var pixelPtr=0;
     for (var i=0; i<len; ++i) {
@@ -141,7 +141,7 @@ RGBAImage.prototype.applyPalette= function(palette) {
         data[pixelPtr++]= color.b;
         data[pixelPtr++]= 0xff;
     }
-    this.buffer.context.putImageData(this.buffer.imageData, 0, 0);
+    bufferContext.putImageData(imageData, 0, 0);
 }
 
 RGBAImage.prototype.blitImage= function(x,y) {
@@ -290,10 +290,11 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 
 
 //-----------------------------------------------------------------------------------------------------------------
-// current shape record to read. There are 300 in faces.vga
+// current shape record to read.
+// excl. 294, 298, 301
 var currShape;
-var MIN_SHAPE = 195;
-var MAX_RECORD= MIN_SHAPE+5;
+var MIN_SHAPE = 0;
+var MAX_RECORD= MIN_SHAPE+10;
 var intervalId;
 
 // We just need one flx parser here
