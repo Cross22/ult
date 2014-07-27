@@ -3,8 +3,10 @@
 
 var ctx ;
 
+// 8x8 Tiles: 0..149,
+// Regular shapes: 150..300, excluding: 153,158,159,160,161,168,186,187,194
 var SHAPES_VGA='U7/STATIC/SHAPES.VGA';
-var FACES_VGA='U7/STATIC/FACES.VGA';
+var FACES_VGA='U7/STATIC/FACES.VGA';   //0..292
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -217,12 +219,14 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
     } else {
         // raw data, no frame header for 8x8 fixed ground tiles
 //        console.log('raw data, no frame header');
-        this.onload(null); // null == error
-//        var rgbaImage= new RGBAImage(0,0,8,8); // ground tile default size
-//        var readPointer=fileOffset+8;
-//        var data = new Uint8Array(this.buffer, readPointer, blockLen); readPointer += blockLen;
-//        rgbaImage.setSpan(currSpan.x, currSpan.y, data);
-        
+        var rgbaImage= new RGBAImage(0,0,7,7*20); // ground tile default size
+        var LEN= 8*8;
+        var readPointer=fileOffset+4;
+        for (var frame=0; frame<20; ++frame) {
+            var data = new Uint8Array(this.buffer, readPointer, LEN); readPointer += LEN;
+            rgbaImage.setSpan(0, 7*frame, data);
+        }
+        this.onload(rgbaImage);
     }
 }
 
@@ -288,8 +292,8 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 //-----------------------------------------------------------------------------------------------------------------
 // current shape record to read. There are 300 in faces.vga
 var currShape;
-var MIN_SHAPE = 215;
-var MAX_RECORD= MIN_SHAPE+12;
+var MIN_SHAPE = 195;
+var MAX_RECORD= MIN_SHAPE+5;
 var intervalId;
 
 // We just need one flx parser here
