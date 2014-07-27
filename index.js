@@ -89,7 +89,10 @@ function  RGBAImage(left,top,right,bottom) {
     
     var imageWidth = right -left + 1;
     var imageHeight =bottom - top +1;
-
+    // check for illegal values
+    if (imageWidth>320||imageHeight>200) {
+        return null;
+    }
     this.buffer= this.createBuffer(imageWidth,imageHeight);
     this.indexedData= new Array(imageWidth*imageHeight);
 }
@@ -240,6 +243,11 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
     );
     var frameDesc = TFrameDesc.readStructs(this.buffer, fileOffset, 1)[0];
     var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
+    if (rgbaImage.buffer===undefined) {
+        console.log('invalid shape frame');
+        this.onload(null);
+        return;
+    }
 
 //    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
 
@@ -291,50 +299,83 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 
 //-----------------------------------------------------------------------------------------------------------------
 // current shape record to read.
-// excl. 294, 298, 301
 var currShape;
-var MIN_SHAPE = 0;
-var MAX_RECORD= MIN_SHAPE+10;
+var MIN_RECORD = 0;
+var MAX_RECORD= MIN_RECORD+30;
 var intervalId;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
 var shpParser = new ShapeParser();
 
-var arrFaceImages = new Array(MAX_RECORD);
+var arrImages = new Array(MAX_RECORD);
 
-function drawFaces() {
-    currShape=MIN_SHAPE;
-    var x=0;
+//function drawShapes() {
+//    currShape=MIN_RECORD;
+//    var x=0;
+//    intervalId=setInterval( function(){
+//                           if (currShape<MAX_RECORD)
+//                           {
+//                               var img= arrImages[currShape++];
+//                               if (img)
+//                               img.blitImage(x,0);
+//                               x+=img.buffer.canvas.width;
+//                           } else {
+//                               clearInterval(intervalId);
+//                               // free memory
+//                               palParser=null;
+//                               shpParser=null;
+//                               arrImages=null;
+//                           }
+//                           },0);
+//}
+
+function drawShapes(palette) {
     intervalId=setInterval( function(){
-                           if (currShape<MAX_RECORD)
-                           {
-                           var img= arrFaceImages[currShape++];
-                           if (img)
-                           img.blitImage(x,0);
-                           x+=img.buffer.canvas.width;
-                           } else {
-                           clearInterval(intervalId);
-                           // free memory
-                           palParser=null;
-                           shpParser=null;
-                           arrFaceImages=null;
-                           }
-                           },0);
+                           animatePalette(palette);
+                           var x=0;
+                           for (var currShape=MIN_RECORD; currShape<MAX_RECORD; ++currShape) {
+                               var img= arrImages[currShape];
+                               if (img) {
+                                       img.applyPalette(palette);
+
+                                       img.blitImage(x,0);
+                                       x+=img.buffer.canvas.width;
+                                   }
+                               }
+                           },100);
+}
+
+function shiftPalette(palette, minRange, maxRange)
+{
+    var saved= palette[maxRange];
+    for (var i=maxRange; i>minRange; --i) {
+        palette[i]= palette[i-1]; // shift up
+    }
+    palette[minRange]=saved;
+}
+// some sections of the color palette get shiftled every 100ms
+function animatePalette(palette) {
+    shiftPalette(palette,224,231);
+    shiftPalette(palette,232,239);
+    shiftPalette(palette,240,243);
+    shiftPalette(palette,244,247);
+    shiftPalette(palette,248,251);
+    shiftPalette(palette,252,254);
 }
 
 function loadFaces(palette) {
     var filename= FACES_VGA;
     var frame=0; // some shapes have multiple frames/expressions
-    currShape=MIN_SHAPE;
+    currShape=MIN_RECORD;
     
     shpParser.onload= function(rgbaImage) {
         if (rgbaImage) {
-            rgbaImage.applyPalette(palette);
-            arrFaceImages[currShape]=rgbaImage;
+//            rgbaImage.applyPalette(palette);
+            arrImages[currShape]=rgbaImage;
         }
         if (++currShape>=MAX_RECORD)
-            drawFaces();
+            drawShapes(palette);
         else
             shpParser.readFile(filename, currShape, frame);
     }
@@ -345,15 +386,15 @@ function loadFaces(palette) {
 function loadShapes(palette) {
     var filename= SHAPES_VGA;
     var frame=0; // some shapes have multiple frames/expressions
-    currShape=MIN_SHAPE;
+    currShape=MIN_RECORD;
     
     shpParser.onload= function(rgbaImage) {
         if (rgbaImage) {
             rgbaImage.applyPalette(palette);
-            arrFaceImages[currShape]=rgbaImage;
+            arrImages[currShape]=rgbaImage;
         }
         if (++currShape>=MAX_RECORD)
-            drawFaces();
+            drawShapes(palette);
         else
             shpParser.readFile(filename, currShape, frame);
     }
