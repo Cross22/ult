@@ -300,8 +300,8 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 //-----------------------------------------------------------------------------------------------------------------
 // current shape record to read.
 var currShape;
-var MIN_RECORD = 0;
-var MAX_RECORD= MIN_RECORD+30;
+var MIN_RECORD = 116;
+var MAX_RECORD= MIN_RECORD+5;
 var intervalId;
 
 // We just need one flx parser here
@@ -410,8 +410,8 @@ window.onload=function(){
     var palette; // has rg,b, fields
     palParser.onload= function(pal) {
         palette=pal;
-//        loadFaces(palette);
-        loadShapes(palette);
+        loadFaces(palette);
+//        loadShapes(palette);
     }
     palParser.readFile(PALETTES_FLX, 0);
 };
