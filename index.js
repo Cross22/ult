@@ -17,6 +17,8 @@ function hex(value) {
 // FLX is the basic container file format of U7. FlxParser is a base class that reads the table of contents
 // File format from here:
 // http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats
+// For details on map record entries, look here:
+// http://bootstrike.com/Ultima/Online/editu7.php
 function  FlxParser() {
     // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
 }
@@ -192,8 +194,8 @@ ShapeParser.prototype.readFile= function (filename, recordNum, frameNum) {
 
 ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNum) {
     var TShpStart = Struct.create(
-        Struct.uint32("totalLength"), // relative to beginning of flx file
-        Struct.uint32("firstFrameOffset")
+        Struct.uint32("totalLength"),
+        Struct.uint32("firstFrameOffset") // relative to beginning of flx file
     );
 
     var shpStart = TShpStart.readStructs(this.buffer, fileOffset, 1)[0];
@@ -213,9 +215,14 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
         }
         this.parseShapeFrame(fileOffset+frameIndex[frameNum]);
     } else {
-        // extended header found
-        console.log('extended header found');
+        // raw data, no frame header for 8x8 fixed ground tiles
+//        console.log('raw data, no frame header');
         this.onload(null); // null == error
+//        var rgbaImage= new RGBAImage(0,0,8,8); // ground tile default size
+//        var readPointer=fileOffset+8;
+//        var data = new Uint8Array(this.buffer, readPointer, blockLen); readPointer += blockLen;
+//        rgbaImage.setSpan(currSpan.x, currSpan.y, data);
+        
     }
 }
 
@@ -280,66 +287,73 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 
 //-----------------------------------------------------------------------------------------------------------------
 // current shape record to read. There are 300 in faces.vga
-var currFace= 0;
-var MAX_FACE= 5;
+var currShape;
+var MIN_SHAPE = 215;
+var MAX_RECORD= MIN_SHAPE+12;
 var intervalId;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
 var shpParser = new ShapeParser();
 
-var arrFaceImages = new Array(MAX_FACE);
+var arrFaceImages = new Array(MAX_RECORD);
 
 function drawFaces() {
-    currFace=0;
+    currShape=MIN_SHAPE;
+    var x=0;
     intervalId=setInterval( function(){
-                           if (currFace<MAX_FACE)
+                           if (currShape<MAX_RECORD)
                            {
-                           var img= arrFaceImages[currFace++];
+                           var img= arrFaceImages[currShape++];
                            if (img)
-                           img.blitImage(0,0);
+                           img.blitImage(x,0);
+                           x+=img.buffer.canvas.width;
                            } else {
                            clearInterval(intervalId);
+                           // free memory
+                           palParser=null;
+                           shpParser=null;
+                           arrFaceImages=null;
                            }
-                           },500);
+                           },0);
 }
 
 function loadFaces(palette) {
     var filename= FACES_VGA;
     var frame=0; // some shapes have multiple frames/expressions
-    currFace=0;
+    currShape=MIN_SHAPE;
     
     shpParser.onload= function(rgbaImage) {
         if (rgbaImage) {
             rgbaImage.applyPalette(palette);
-            arrFaceImages[currFace]=rgbaImage;
+            arrFaceImages[currShape]=rgbaImage;
         }
-        if (++currFace>=MAX_FACE)
+        if (++currShape>=MAX_RECORD)
             drawFaces();
         else
-            shpParser.readFile(filename, currFace, frame);
+            shpParser.readFile(filename, currShape, frame);
     }
     
-    shpParser.readFile(filename, currFace, frame);
+    shpParser.readFile(filename, currShape, frame);
 }
 
 function loadShapes(palette) {
     var filename= SHAPES_VGA;
     var frame=0; // some shapes have multiple frames/expressions
-    currFace=0;
+    currShape=MIN_SHAPE;
     
     shpParser.onload= function(rgbaImage) {
         if (rgbaImage) {
             rgbaImage.applyPalette(palette);
-            arrFaceImages[currFace]=rgbaImage;
+            arrFaceImages[currShape]=rgbaImage;
         }
-        if (++currFace>=MAX_FACE)
+        if (++currShape>=MAX_RECORD)
             drawFaces();
         else
-            shpParser.readFile(filename, currFace, frame);
+            shpParser.readFile(filename, currShape, frame);
     }
     
-    shpParser.readFile(filename, currFace, frame);
+    shpParser.readFile(filename, currShape, frame);
 }
 
 window.onload=function(){
@@ -350,8 +364,8 @@ window.onload=function(){
     var palette; // has rg,b, fields
     palParser.onload= function(pal) {
         palette=pal;
-        loadFaces(palette);
-//        loadShapes(palette);
+//        loadFaces(palette);
+        loadShapes(palette);
     }
     palParser.readFile(PALETTES_FLX, 0);
 };
