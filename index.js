@@ -5,6 +5,7 @@ var ctx ;
 
 // 8x8 Tiles: 0..149,
 // Regular shapes: 150..1000, excluding: 153,158,159,160,161,168,186,187,194 and several others
+var U7MAP='U7/STATIC/U7MAP';
 var SHAPES_VGA='U7/STATIC/SHAPES.VGA';
 var FACES_VGA='U7/STATIC/FACES.VGA';   //0..292
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
@@ -22,7 +23,6 @@ function hex(value) {
 // For details on map record entries, look here:
 // http://bootstrike.com/Ultima/Online/editu7.php
 function  FlxParser() {
-    // SomeSuperClass.apply(this, Array.prototype.slice.call(arguments));
 }
 FlxParser.prototype.parse= function(recordNum)
 {
@@ -296,8 +296,54 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
     this.onload(rgbaImage);
 }
 
+//-----------------------------------------------------------------------------------------------------------------
+// World data
+function  World() {
+    this.shpParser = new ShapeParser();
+
+}
+World.prototype.getWorldRegion= function(worldx,worldy, onRegionLoaded)
+{
+    // do we need to read the file first?
+    if (this.u7mapBuffer===undefined)
+    {
+        var self=this;
+        this.readU7map(U7MAP,
+                       function() {
+                       self.getWorldRegion(worldx, worldy, onRegionLoaded);
+                       });
+        return;
+    }
+    // 12x12 regions in u7map
+    var regionNum= worldy*12 + worldx;
+    // each region has 16x16 chunk IDs
+    var regionData = new Uint16Array(this.u7mapBuffer, regionNum*16*16, 16*16); // each uint is a chunk ID (0..0xC00)
+    onRegionLoaded(regionData);
+}
+
+World.prototype.readU7map= function (filename, onLoaded) {
+    var request = new XMLHttpRequest();
+    
+    request.open( 'GET', U7MAP, true );
+    request.responseType = 'arraybuffer';
+    
+    var self=this;
+    request.onload = function() {
+        self.u7mapBuffer= request.response;
+        if (self.u7mapBuffer===undefined) {
+            console.log('READ ERROR FOR U7MAP');
+            return;
+        }
+        // go back to caller and try parsing again
+        onLoaded();
+    }
+    request.send();
+}
+
+
 
 //-----------------------------------------------------------------------------------------------------------------
+// MAIN()
 // current shape record to read.
 var currShape;
 var MIN_RECORD = 116;
@@ -309,26 +355,6 @@ var palParser = new PaletteParser();
 var shpParser = new ShapeParser();
 
 var arrImages = new Array(MAX_RECORD);
-
-//function drawShapes() {
-//    currShape=MIN_RECORD;
-//    var x=0;
-//    intervalId=setInterval( function(){
-//                           if (currShape<MAX_RECORD)
-//                           {
-//                               var img= arrImages[currShape++];
-//                               if (img)
-//                               img.blitImage(x,0);
-//                               x+=img.buffer.canvas.width;
-//                           } else {
-//                               clearInterval(intervalId);
-//                               // free memory
-//                               palParser=null;
-//                               shpParser=null;
-//                               arrImages=null;
-//                           }
-//                           },0);
-//}
 
 function drawShapes(palette) {
     intervalId=setInterval( function(){
@@ -402,17 +428,28 @@ function loadShapes(palette) {
     shpParser.readFile(filename, currShape, frame);
 }
 
+function onRegionLoaded(uintarray)
+{
+    var i=0;
+}
+
+function onPaletteLoaded(pal)
+{
+    var world= new World();
+    world.getWorldRegion(0,0,onRegionLoaded);
+//    loadFaces(pal);
+    //        loadShapes(pal);
+}
+
+function loadPalette(palNum) {
+    palParser.onload= onPaletteLoaded;
+    palParser.readFile(PALETTES_FLX, palNum);
+}
+
 window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
-
     // Load Palette #0 first
-    var palette; // has rg,b, fields
-    palParser.onload= function(pal) {
-        palette=pal;
-        loadFaces(palette);
-//        loadShapes(palette);
-    }
-    palParser.readFile(PALETTES_FLX, 0);
+    loadPalette(0);
 };
 
