@@ -6,6 +6,7 @@ var ctx ;
 // 8x8 Tiles: 0..149,
 // Regular shapes: 150..1000, excluding: 153,158,159,160,161,168,186,187,194 and several others
 var U7MAP='U7/STATIC/U7MAP';
+var U7CHUNKS='U7/STATIC/U7CHUNKS';
 var SHAPES_VGA='U7/STATIC/SHAPES.VGA';
 var FACES_VGA='U7/STATIC/FACES.VGA';   //0..292
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
@@ -299,29 +300,37 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 //-----------------------------------------------------------------------------------------------------------------
 // World data
 function  World() {
+    this.shapeArray= new Array();
     this.shpParser = new ShapeParser();
-
+    var self=this;
 }
-World.prototype.getWorldRegion= function(worldx,worldy, onRegionLoaded)
-{
-    // do we need to read the file first?
-    if (this.u7mapBuffer===undefined)
-    {
-        var self=this;
-        this.readU7map(U7MAP,
+
+World.prototype.init= function (onReady) {
+    // load all map data - nested async callbacks
+    var self=this;
+    this.shpParser.onload= function(rgbaimage) {
+        self.readU7map(
                        function() {
-                       self.getWorldRegion(worldx, worldy, onRegionLoaded);
-                       });
-        return;
-    }
-    // 12x12 regions in u7map
-    var regionNum= worldy*12 + worldx;
-    // each region has 16x16 chunk IDs
-    var regionData = new Uint16Array(this.u7mapBuffer, regionNum*16*16, 16*16); // each uint is a chunk ID (0..0xC00)
-    onRegionLoaded(regionData);
+                       self.readU7chunks( onReady );
+                       }
+                       );
+    };
+
+    // start with dummy shape
+    this.shpParser.readFile(SHAPES_VGA, 0, 0);
 }
 
-World.prototype.readU7map= function (filename, onLoaded) {
+//World.prototype.onShapeLoaded= function(rgbaImage) {
+//    var currShape=0;
+//    if (rgbaImage) {
+//        this.shapeArray[currShape]=rgbaImage;
+//    }
+////    this.shpParser.readFile(filename, ++currShape, frame);
+//}
+
+
+
+World.prototype.readU7map= function (onLoaded) {
     var request = new XMLHttpRequest();
     
     request.open( 'GET', U7MAP, true );
@@ -334,10 +343,45 @@ World.prototype.readU7map= function (filename, onLoaded) {
             console.log('READ ERROR FOR U7MAP');
             return;
         }
+        onLoaded();
+    }
+    request.send();
+}
+
+World.prototype.readU7chunks= function (onLoaded) {
+    var request = new XMLHttpRequest();
+    
+    request.open( 'GET', U7CHUNKS, true );
+    request.responseType = 'arraybuffer';
+    
+    var self=this;
+    request.onload = function() {
+        self.u7chunksBuffer= request.response;
+        if (self.u7chunksBuffer===undefined) {
+            console.log('READ ERROR FOR u7chunksBuffer');
+            return;
+        }
         // go back to caller and try parsing again
         onLoaded();
     }
     request.send();
+}
+
+World.prototype.getWorldRegion= function(worldx,worldy)
+{
+    // 12x12 regions in u7map
+    var regionNum= worldy*12 + worldx;
+    // each region has 16x16 chunk IDs
+    var regionData = new Uint16Array(this.u7mapBuffer, regionNum*512, 16*16); // each uint is a chunk ID (0..0xC00)
+    return regionData;
+}
+
+World.prototype.getChunk= function(chunkNum)
+{
+    // one chunk has 16x16 base tiles. each UINT16 contains shapeNum and frameNum
+    // Bits: X FFFFF SSSSSSSSSS, where F= frameNum, S= shapeNum
+    var chunkData = new Uint16Array(this.u7chunksBuffer, chunkNum*512, 16*16);
+    return chunkData;
 }
 
 
@@ -352,8 +396,7 @@ var intervalId;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
-var shpParser = new ShapeParser();
-
+//var shpParser = new ShapeParser();
 var arrImages = new Array(MAX_RECORD);
 
 function drawShapes(palette) {
@@ -428,15 +471,24 @@ function loadShapes(palette) {
     shpParser.readFile(filename, currShape, frame);
 }
 
-function onRegionLoaded(uintarray)
+var world= new World();
+
+// world files in memory
+function onMapLoaded()
 {
-    var i=0;
+    var region= world.getWorldRegion(0,0);
+    var chunkdata= world.getChunk(region[0]);
+    for (var x=0; x<16; ++x) {
+        var shapeFrame= chunkdata[x];
+        var shape= shapeFrame & 0x3FF;
+        var frame= (shapeFrame>>10) & 0x1F;
+//        shpParser.readFile(SHAPES_VGA, shape, 0);
+    }
 }
 
 function onPaletteLoaded(pal)
 {
-    var world= new World();
-    world.getWorldRegion(0,0,onRegionLoaded);
+    world.init(onMapLoaded);
 //    loadFaces(pal);
     //        loadShapes(pal);
 }
