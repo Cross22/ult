@@ -5,6 +5,10 @@
     <title></title>
     <script src="js-struct/js-struct.js"></script>
     <script src="index.js"></script>
+<!-- redirect to our keydown function -->
+<script type="text/javascript">
+document.onkeydown = onKeyDown
+</script>
 <style>
 	canvas {
 		image-rendering: optimizeSpeed;
@@ -22,5 +26,6 @@
 
 <body bgcolor="#aaaaaa">
 <canvas id="mycanvas" width="320" height="200" ></canvas>
+<p><center>Use WASD for (limited) navigation</center>
 </body>
 </html>

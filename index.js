@@ -127,9 +127,11 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
 RGBAImage.prototype.applyPalette= function(palette) {
     // first write to imagedata.data, then copy that to canvas
     // in blitImage we then draw our private canvas to the main canvas..phew
-    var bufferContext = this.buffer.canvas.getContext("2d");
-    var imageData = bufferContext.createImageData(this.buffer.canvas.width, this.buffer.canvas.height);
-    var data = imageData.data;
+    if (this.bufferContext===undefined)
+        this.bufferContext = this.buffer.canvas.getContext("2d");
+    if (this.imageData===undefined)
+        this.imageData = this.bufferContext.createImageData(this.buffer.canvas.width, this.buffer.canvas.height);
+    var data = this.imageData.data;
     var len= this.indexedData.length;
     var pixelPtr=0;
     for (var i=0; i<len; ++i) {
@@ -145,7 +147,7 @@ RGBAImage.prototype.applyPalette= function(palette) {
         data[pixelPtr++]= color.b;
         data[pixelPtr++]= 0xff;
     }
-    bufferContext.putImageData(imageData, 0, 0);
+    this.bufferContext.putImageData(this.imageData, 0, 0);
 }
 
 RGBAImage.prototype.blitImage= function(x,y) {
@@ -392,7 +394,7 @@ World.prototype.getShapeFrame= function(shapeFrame,onLoad)
         var frame= (shapeFrame>>10) & 0x1F;
         this.shpParser.readFile(SHAPES_VGA, shape, frame,
                                 function (img) {
-                                console.log('shape/frame: '+shape+' '+frame);
+//                                console.log('shape/frame: '+shape+' '+frame);
                                 self.shapeCache[shapeFrame]=img; // cache for next time
                                 onLoad(img);
                                 });
@@ -489,17 +491,16 @@ function loadShapes(palette) {
 
 var world= new World();
 var palette;
+var chunkTop=0, chunkLeft=0;
 
 // world files in memory
 function onMapLoaded()
 {
     var region= world.getWorldRegion(3,5);
-    var chunky=0;
-    
-    for (var chunky=0; chunky<2; ++chunky) {
-        for (var chunkx=0; chunkx<3; ++chunkx) {
-            var xoffs=chunkx*16*8;
-            var yoffs=chunky*16*8;
+    for (var chunky=chunkTop; chunky<chunkTop+2; ++chunky) {
+        for (var chunkx=chunkLeft; chunkx<chunkLeft+3; ++chunkx) {
+            var xoffs=(chunkx-chunkLeft)*16*8;
+            var yoffs=(chunky-chunkTop)*16*8;
             var chunkdata= world.getChunk(region[chunky*16+chunkx]);
             for (var y=0; y<16; ++y) {
                 for (var x=0; x<16; ++x) {
@@ -526,6 +527,32 @@ function onPaletteLoaded(pal)
 function loadPalette(palNum) {
     palParser.onload= onPaletteLoaded;
     palParser.readFile(PALETTES_FLX, palNum);
+}
+
+// Move chunk base with WASD keys
+function onKeyDown(event) {
+    event = event || window.event;
+    var e = event.keyCode;
+    var dirty=false;
+    if (e==87 /*w*/){
+        if (chunkTop>0) { --chunkTop; dirty=true; }
+    } else
+    
+    if (e==65 /*a*/){
+        if (chunkLeft>0) { --chunkLeft; dirty=true; }
+    } else
+    
+    if (e==83 /*s*/){
+        if (chunkTop<13) { ++chunkTop; dirty=true; }
+    } else
+    
+    if (e==68 /*d*/){
+        if (chunkLeft<12) { ++chunkLeft; dirty=true; }
+    }
+    
+    if (dirty) {
+        onMapLoaded();
+    }
 }
 
 window.onload=function(){
