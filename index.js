@@ -149,7 +149,7 @@ RGBAImage.prototype.applyPalette= function(palette) {
 }
 
 RGBAImage.prototype.blitImage= function(x,y) {
-    ctx.drawImage(this.buffer.canvas, x,y);
+    ctx.drawImage(this.buffer.canvas, x+this.imgLeft,y+this.imgTop);
 }
 
 //-----------------------------------------------------------------------------------------------------------------
