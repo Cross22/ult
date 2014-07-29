@@ -392,6 +392,7 @@ World.prototype.getShapeFrame= function(shapeFrame,onLoad)
         var frame= (shapeFrame>>10) & 0x1F;
         this.shpParser.readFile(SHAPES_VGA, shape, frame,
                                 function (img) {
+                                console.log('shape/frame: '+shape+' '+frame);
                                 self.shapeCache[shapeFrame]=img; // cache for next time
                                 onLoad(img);
                                 });
