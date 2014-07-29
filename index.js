@@ -303,7 +303,7 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset, callback)
 //-----------------------------------------------------------------------------------------------------------------
 // World data
 function  World() {
-    this.shapeArray= new Array();
+    this.shapeCache= new Array();
     this.shpParser = new ShapeParser();
     var self=this;
 }
@@ -381,6 +381,25 @@ World.prototype.getShape= function(shapeNum,frameNum,onLoad)
 {
     this.shpParser.readFile(SHAPES_VGA, shapeNum, frameNum, onLoad);
 }
+
+World.prototype.getShapeFrame= function(shapeFrame,onLoad)
+{
+    var cached= this.shapeCache[shapeFrame];
+    if (cached===undefined) {
+        var self=this;
+        
+        var shape= shapeFrame & 0x3FF;
+        var frame= (shapeFrame>>10) & 0x1F;
+        this.shpParser.readFile(SHAPES_VGA, shape, frame,
+                                function (img) {
+                                self.shapeCache[shapeFrame]=img; // cache for next time
+                                onLoad(img);
+                                });
+    } else {
+        onLoad(cached);
+    }
+}
+
 
 //-----------------------------------------------------------------------------------------------------------------
 // MAIN()
@@ -469,10 +488,11 @@ function loadShapes(palette) {
 
 var world= new World();
 var palette;
+
 // world files in memory
 function onMapLoaded()
 {
-    var region= world.getWorldRegion(0,0);
+    var region= world.getWorldRegion(3,5);
     var chunky=0;
     
     for (var chunky=0; chunky<2; ++chunky) {
@@ -483,9 +503,7 @@ function onMapLoaded()
             for (var y=0; y<16; ++y) {
                 for (var x=0; x<16; ++x) {
                     var shapeFrame= chunkdata[x+y*16];
-                    var shape= shapeFrame & 0x3FF;
-                    var frame= (shapeFrame>>10) & 0x1F;
-                    world.getShape(shape,frame,function(img) {
+                    world.getShapeFrame(shapeFrame,function(img) {
                                    if (img===undefined) return;
                                    img.applyPalette(palette);
                                    img.blitImage(xoffs+ x*8,yoffs+ y*8);
