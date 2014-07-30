@@ -254,14 +254,14 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
         var LEN= 8*8;
         var numFrames= byteLength / LEN;
         //        console.log('raw data, no frame header');
-        var rgbaImage= new RGBAImage(0,0,7,7); // ground tile default size
+        var rgbaImage= new RGBAImage(-7,-7,0,0); // ground tile default size
         if (frameNum>=numFrames) {
             console.log('frame request exceeded numFrames');
             frameNum= numFrames-1;
         }
         var readPointer=fileOffset + LEN* frameNum;
         var data = new Uint8Array(this.buffer, readPointer, LEN);
-        rgbaImage.setSpan(0, 0, data);
+        rgbaImage.setSpan(-7, -7, data);
         callback(rgbaImage);
     }
 }
