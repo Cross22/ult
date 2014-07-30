@@ -2,7 +2,7 @@
 "use strict";
 
 var ctx ;
-
+var ctximagedata;
 // 8x8 Tiles: 0..149,
 // Regular shapes: 150..1000, excluding: 153,158,159,160,161,168,186,187,194 and several others
 var U7MAP='U7/STATIC/U7MAP';
@@ -151,7 +151,35 @@ RGBAImage.prototype.applyPalette= function(palette) {
 }
 
 RGBAImage.prototype.blitImage= function(x,y) {
-    ctx.drawImage(this.buffer.canvas, x+this.imgLeft,y+this.imgTop);
+    var data = ctximagedata.data;
+    var sourcedata= this.imageData.data;
+    var w=this.buffer.canvas.width;
+    var h=this.buffer.canvas.height;
+    // we might exceed canvas bounds- find overlap to clip
+    var maxx= w;
+    var maxy= h;
+    var minx= 0, miny=0;
+
+    for (var sy=miny; sy<maxy;++sy) {
+        var outy=(sy+y+this.imgTop);
+        if (outy<0 || outy>=200)
+            continue;
+        for (var sx=minx; sx<maxx;++sx)
+        {
+            var outx=(sx+x+this.imgLeft);
+            if (outx<0 || outx>=320)
+                continue;
+            var outptr= (outy*320+outx)<<2;
+            var inptr= (sy*w+sx)<<2;
+            var alpha=sourcedata[inptr+3];
+            if (alpha<=0)
+                continue;
+            data[outptr] = sourcedata[inptr];
+            data[outptr+1] = sourcedata[inptr+1];
+            data[outptr+2] = sourcedata[inptr+2];
+            data[outptr+3] = alpha;
+        }
+    }
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -493,9 +521,11 @@ var world= new World();
 var palette;
 var chunkTop=0, chunkLeft=0;
 
+var tilesremaining=0;
 // world files in memory
 function onMapLoaded()
 {
+    tilesremaining=0;
     var region= world.getWorldRegion(3,5);
     for (var chunky=chunkTop; chunky<chunkTop+2; ++chunky) {
         for (var chunkx=chunkLeft; chunkx<chunkLeft+3; ++chunkx) {
@@ -505,15 +535,21 @@ function onMapLoaded()
             for (var y=0; y<16; ++y) {
                 for (var x=0; x<16; ++x) {
                     var shapeFrame= chunkdata[x+y*16];
-                    world.getShapeFrame(shapeFrame,function(img) {
-                                   if (img===undefined) return;
-                                   img.applyPalette(palette);
-                                   img.blitImage(xoffs+ x*8,yoffs+ y*8);
-                                   });
+                    
+                    world.getShapeFrame(shapeFrame,function(img)
+                                        {
+                                        if (img!==undefined) {
+                                        img.applyPalette(palette);
+                                        img.blitImage(xoffs+ x*8,yoffs+ y*8);
+                                        }
+                                        });
                 } //x
             }//y
         }//chunkx
     }//chunky
+    console.profile('swap');
+    ctx.putImageData(ctximagedata, 0, 0);
+    console.profileEnd('swap');
 }
 
 function onPaletteLoaded(pal)
@@ -548,16 +584,21 @@ function onKeyDown(event) {
     
     if (e==68 /*d*/){
         if (chunkLeft<12) { ++chunkLeft; dirty=true; }
+    } else {
     }
     
     if (dirty) {
+        console.profile('render map');
         onMapLoaded();
+        console.profileEnd('render map');
     }
 }
 
 window.onload=function(){
     var canvas = document.getElementById("mycanvas");
     ctx = canvas.getContext("2d");
+    ctximagedata= ctx.createImageData(320,200);
+
     // Load Palette #0 first
     loadPalette(0);
 };
