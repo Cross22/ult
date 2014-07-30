@@ -125,36 +125,20 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
 }
 // convert indexed data to RGBA buffer
 RGBAImage.prototype.applyPalette= function(palette) {
-    // first write to imagedata.data, then copy that to canvas
-    // in blitImage we then draw our private canvas to the main canvas..phew
-    if (this.bufferContext===undefined)
-        this.bufferContext = this.buffer.canvas.getContext("2d");
-    if (this.imageData===undefined)
-        this.imageData = this.bufferContext.createImageData(this.buffer.canvas.width, this.buffer.canvas.height);
-    var data = this.imageData.data;
-    var len= this.indexedData.length;
-    var pixelPtr=0;
-    for (var i=0; i<len; ++i) {
-        // read from indexed data and get rgb values
-        var color= palette[this.indexedData[i]];
-        if (color===undefined) {
-            //alpha=0
-            pixelPtr+=4;
-            continue;
-        }
-        data[pixelPtr++]= color.r;
-        data[pixelPtr++]= color.g;
-        data[pixelPtr++]= color.b;
-        data[pixelPtr++]= 0xff;
-    }
-    this.bufferContext.putImageData(this.imageData, 0, 0);
+    this.palette= palette;
 }
 
 RGBAImage.prototype.blitImage= function(x,y) {
-    var data = ctximagedata.data;
-    var sourcedata= this.imageData.data;
     var w=this.buffer.canvas.width;
     var h=this.buffer.canvas.height;
+    
+    if (w+x+this.imgLeft < 0) return;
+    if (x+this.imgLeft >= 320) return;
+    if (h+y+this.imgTop < 0) return;
+    if (y+this.imgTop >= 200) return;
+    
+    var data = ctximagedata.data;
+    var sourcedata= this.indexedData;
     // we might exceed canvas bounds- find overlap to clip
     var maxx= w;
     var maxy= h;
@@ -170,14 +154,18 @@ RGBAImage.prototype.blitImage= function(x,y) {
             if (outx<0 || outx>=320)
                 continue;
             var outptr= (outy*320+outx)<<2;
-            var inptr= (sy*w+sx)<<2;
-            var alpha=sourcedata[inptr+3];
-            if (alpha<=0)
+            
+            var inptr= (sy*w+sx);
+            
+            var color= this.palette[sourcedata[inptr]];
+            if (color===undefined) {
+                //alpha=0
                 continue;
-            data[outptr] = sourcedata[inptr];
-            data[outptr+1] = sourcedata[inptr+1];
-            data[outptr+2] = sourcedata[inptr+2];
-            data[outptr+3] = alpha;
+            }
+            data[outptr]= color.r;
+            data[++outptr]= color.g;
+            data[++outptr]= color.b;
+            data[++outptr]= 0xff;
         }
     }
 }
@@ -547,9 +535,7 @@ function onMapLoaded()
             }//y
         }//chunkx
     }//chunky
-    console.profile('swap');
     ctx.putImageData(ctximagedata, 0, 0);
-    console.profileEnd('swap');
 }
 
 function onPaletteLoaded(pal)
