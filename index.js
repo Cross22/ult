@@ -132,10 +132,16 @@ RGBAImage.prototype.blitImage= function(x,y) {
     var w=this.buffer.canvas.width;
     var h=this.buffer.canvas.height;
     
-    if (w+x+this.imgLeft < 0) return;
-    if (x+this.imgLeft >= 320) return;
-    if (h+y+this.imgTop < 0) return;
-    if (y+this.imgTop >= 200) return;
+    var leftScreen=x+this.imgLeft;
+    var rightScreen=leftScreen+w;
+    var topScreen=y+this.imgTop;
+    var bottomScreen=topScreen+h;
+
+    // entirely outside
+    if (rightScreen < 0) return;
+    if (leftScreen >= 320) return;
+    if (bottomScreen < 0) return;
+    if (topScreen >= 200) return;
     
     var data = ctximagedata.data;
     var sourcedata= this.indexedData;
@@ -143,17 +149,21 @@ RGBAImage.prototype.blitImage= function(x,y) {
     var maxx= w;
     var maxy= h;
     var minx= 0, miny=0;
-
+    if (leftScreen<0)
+        minx -= leftScreen;
+    if (topScreen<0)
+        miny -= topScreen;
+    if (rightScreen>=320)
+        maxx -= (rightScreen-320);
+    if (bottomScreen>=200)
+        maxy -= (bottomScreen-200);
+    
+    var outy=(miny+y+this.imgTop)*320;
     for (var sy=miny; sy<maxy;++sy) {
-        var outy=(sy+y+this.imgTop);
-        if (outy<0 || outy>=200)
-            continue;
         for (var sx=minx; sx<maxx;++sx)
         {
             var outx=(sx+x+this.imgLeft);
-            if (outx<0 || outx>=320)
-                continue;
-            var outptr= (outy*320+outx)<<2;
+            var outptr= (outy+outx)<<2;
             
             var inptr= (sy*w+sx);
             
@@ -163,10 +173,12 @@ RGBAImage.prototype.blitImage= function(x,y) {
                 continue;
             }
             data[outptr]= color.r;
-            data[++outptr]= color.g;
-            data[++outptr]= color.b;
-            data[++outptr]= 0xff;
+            data[outptr+1]= color.g;
+            data[outptr+2]= color.b;
+            data[outptr+3]= 0xff;
+            outptr+=4;
         }
+        outy+=320;
     }
 }
 
