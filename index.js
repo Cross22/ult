@@ -115,11 +115,11 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
     var indexPtr= (x+y*this.buffer.canvas.width);
     for (var i=0; i<data.length; ++i) {
         var color= data[i];
-        if (color==0xff) { // 0xff is transparent
-            indexPtr++;
+        if (color===0xff) { // 0xff is transparent
+            ++indexPtr;
             continue;
         } else {
-            this.indexedData[indexPtr++]= data[i];
+            this.indexedData[indexPtr++]= color;
         }
     }
 }
@@ -255,12 +255,11 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
         var numFrames= byteLength / LEN;
         //        console.log('raw data, no frame header');
         var rgbaImage= new RGBAImage(0,0,7,7); // ground tile default size
-        var readPointer=fileOffset+4;
         if (frameNum>=numFrames) {
             console.log('frame request exceeded numFrames');
             frameNum= numFrames-1;
         }
-        readPointer+= LEN* frameNum;
+        var readPointer=fileOffset + LEN* frameNum;
         var data = new Uint8Array(this.buffer, readPointer, LEN);
         rgbaImage.setSpan(0, 0, data);
         callback(rgbaImage);
