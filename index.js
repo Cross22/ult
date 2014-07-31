@@ -27,18 +27,20 @@ function hex(value) {
 // http://bootstrike.com/Ultima/Online/editu7.php
 function  FlxParser() {
 }
+
+var TFlxHdr = Struct.create(
+                            Struct.string("comment",80),
+                            Struct.uint32("magic1"),
+                            Struct.uint32("numRecords"),
+                            Struct.array("magic2", Struct.uint32(),10)
+                            );
+var TFlxRecordIndex = Struct.create(
+                                    Struct.uint32("byteOffset"), // relative to beginning of flx file
+                                    Struct.uint32("byteLength")
+                                    );
+
 FlxParser.prototype.parse= function(recordNum)
 {
-    var TFlxHdr = Struct.create(
-                                Struct.string("comment",80),
-                                Struct.uint32("magic1"),
-                                Struct.uint32("numRecords"),
-                                Struct.array("magic2", Struct.uint32(),10)
-                                );
-    var TFlxRecordIndex = Struct.create(
-                                        Struct.uint32("byteOffset"), // relative to beginning of flx file
-                                        Struct.uint32("byteLength")
-                                        );
     var hdr= TFlxHdr.readStructs(this.buffer, 0, 1)[0];
     if (hdr.magic1!=0xffff1a00) {
         console.log('Magic1 is not 0xffff 1a00. Found: ' + hex(hdr.magic1));
@@ -81,19 +83,16 @@ FlxParser.prototype.readRecord= function (recordNum) {
 // ShapeFlagReader - gets extended information about renderable shapes
 // Stored in 24bits: http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats#aWorldShapes
 function  ShapeFlagReader() {
-    this.cache= new Array();
 }
+
+var TfaFlags = Struct.create(
+                             Struct.uint8("a"),
+                             Struct.uint8("b"),
+                             Struct.uint8("c")
+                             );
+
 ShapeFlagReader.prototype.getAttribs= function(recordNum)
 {
-    var cached= this.cache[recordNum];
-    if (cached!==undefined)
-        return cached;
-    
-    var TfaFlags = Struct.create(
-                                        Struct.uint8("a"),
-                                        Struct.uint8("b"),
-                                        Struct.uint8("c")
-                                        );
     var flags = TfaFlags.readStructs(this.buffer, 3*recordNum, 1)[0];
     // make it human-readable and pass back to caller
     var attribs= {
@@ -112,7 +111,6 @@ ShapeFlagReader.prototype.getAttribs= function(recordNum)
         "tileYminusOne" : (flags.c>>3) & 7,
         "lightSource" : flags.c & 0x40,
         "translucent" : flags.c & 0x80 };
-    this.cache[recordNum]=attribs;
     return attribs;
 }
 
@@ -234,12 +232,13 @@ PaletteParser.prototype.readPalette= function (recordNum ) {
     return this.parsePalette(record.byteOffset, record.byteLength);
 }
 
+var TColorEntry = Struct.create(
+                                Struct.uint8("r"),
+                                Struct.uint8("g"),
+                                Struct.uint8("b")
+                                );
+
 PaletteParser.prototype.parsePalette= function (fileOffset,byteLength) {
-    var TColorEntry = Struct.create(
-                                    Struct.uint8("r"),
-                                    Struct.uint8("g"),
-                                    Struct.uint8("b")
-                                    );
     var pal = TColorEntry.readStructs(this.buffer, fileOffset, 256);
     for (var c=0; c<pal.length; ++c)
     {
@@ -265,12 +264,32 @@ ShapeParser.prototype.readShape= function (recordNum, frameNum) {
     return res;
 }
 
+ShapeParser.prototype.readFrameCount= function (recordNum) {
+    var record= this.readRecord(recordNum);
+    var res= this.parseFrameCount(record.byteOffset, record.byteLength);
+    return res;
+}
+
+var TShpStart = Struct.create(
+                              Struct.uint32("totalLength"),
+                              Struct.uint32("firstFrameOffset") // relative to beginning of flx file
+                              );
+ShapeParser.prototype.parseFrameCount= function (fileOffset, byteLength) {
+    var shpStart = TShpStart.readStructs(this.buffer, fileOffset, 1)[0];
+    var numFrames;
+    // A default shaper header has the expected length. extended headers will have a different length listed here
+    if (shpStart.totalLength==byteLength) {
+        var firstFrameOffset    = shpStart.firstFrameOffset;
+        numFrames = (firstFrameOffset - 4) / 4;
+    } else {
+        // raw data, no frame header for 8x8 fixed ground tiles
+        var LEN= 8*8;
+        numFrames= byteLength / LEN;
+    }
+    return numFrames;
+}
+
 ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNum) {
-    var TShpStart = Struct.create(
-                                  Struct.uint32("totalLength"),
-                                  Struct.uint32("firstFrameOffset") // relative to beginning of flx file
-                                  );
-    
     var shpStart = TShpStart.readStructs(this.buffer, fileOffset, 1)[0];
     // A default shaper header has the expected length. extended headers will have a different length listed here
     if (shpStart.totalLength==byteLength) {
@@ -280,6 +299,7 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
                                     Struct.uint32("totalLength"),
                                     Struct.array("offsetFrames", Struct.uint32(), numFrames) // relative to fileOffset
                                     );
+        
         var frameIndex = TShpHdr.readStructs(this.buffer, fileOffset, 1)[0].offsetFrames;
         //        console.log('numFrames: '+ numFrames);
         if (frameNum>=numFrames) {
@@ -304,24 +324,25 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
     }
 }
 
+var TFrameDesc = Struct.create(
+                               Struct.uint16("maxX"),
+                               Struct.uint16("minXinverted"),
+                               Struct.uint16("minYinverted"),
+                               Struct.uint16("maxY")
+                               );
+var TSpan = Struct.create(
+                          Struct.uint16("blockData"),
+                          Struct.int16("x"),
+                          Struct.int16("y")
+                          );
+
 ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 {
-    var TFrameDesc = Struct.create(
-                                   Struct.uint16("maxX"),
-                                   Struct.uint16("minXinverted"),
-                                   Struct.uint16("minYinverted"),
-                                   Struct.uint16("maxY")
-                                   );
     var frameDesc = TFrameDesc.readStructs(this.buffer, fileOffset, 1)[0];
     var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
     
     //    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
     
-    var TSpan = Struct.create(
-                              Struct.uint16("blockData"),
-                              Struct.int16("x"),
-                              Struct.int16("y")
-                              );
     var readPointer=fileOffset+8;
     while (true) {
         var currSpan = TSpan.readStructs(this.buffer, readPointer, 1)[0]; readPointer += 6;
@@ -366,8 +387,9 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 // World data
 function  World() {
     this.shapeCache= new Array();
+    this.attribCache=new Array();
     this.shapeParser = new ShapeParser();
-    var self=this;
+    this.shapeFlagReader= new ShapeFlagReader();
 }
 
 World.prototype.init= function (onReady) {
@@ -443,11 +465,6 @@ World.prototype.getShapeFrame= function(shape,frame)
     var shapeFrame=shape | (frame<<10);
     var cached= this.shapeCache[ shapeFrame ];
     if (cached===undefined) {
-//        var shape= shapeFrame & 0x3FF;
-//        var frame= (shapeFrame>>10) & 0x1F;
-        // beach is shape 1022
-//        if (shape<1022) return;
-//        var attribs= shapeFlagReader.getAttribs(shape);
         var img= this.shapeParser.readShape(shape, frame);
         this.shapeCache[shapeFrame]=img; // cache for next time
         return img;
@@ -456,6 +473,17 @@ World.prototype.getShapeFrame= function(shape,frame)
     }
 }
 
+World.prototype.getAttribs= function(recordNum)
+{
+    var cached= this.attribCache[recordNum];
+    if (cached!==undefined)
+        return cached;
+
+    var attribs= this.shapeFlagReader.getAttribs(recordNum);
+    attribs["frameCount"]= this.shapeParser.readFrameCount(recordNum);
+    this.attribCache[recordNum]= attribs;
+    return attribs;
+}
 
 //-----------------------------------------------------------------------------------------------------------------
 // MAIN()
@@ -468,7 +496,6 @@ var renderWorldTimer;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
-var shapeFlagReader= new ShapeFlagReader();
 
 //var shpParser = new ShapeParser();
 //var arrImages = new Array(MAX_RECORD);
@@ -577,10 +604,10 @@ function renderWorld()
         
         // beach is shape 1022
         //        if (shape<1022) return;
-        var attribs= shapeFlagReader.getAttribs(shape);
+        var attribs= world.getAttribs(shape);
         if (attribs.animated!=0) {
             // find tiles that contain animation frames
-            frame= (frame+g_framesRendered) % 11;
+            frame= (frame+g_framesRendered) % (attribs.frameCount);
         }
         var img = world.getShapeFrame(shape,frame);
         img.blitImage((i%SCREEN_WIDTH)<<3,(i/SCREEN_WIDTH)<<3);
@@ -605,7 +632,7 @@ function onPaletteLoaded(pal)
     if (!worldInitialized)
     {
         worldInitialized= true;
-        shapeFlagReader.init(function() { }); // TODO: Make proper initialization
+        world.shapeFlagReader.init(function() { }); // TODO: Make proper initialization
         world.init(updateWorldTiles);
     }
     //    loadFaces(pal);
