@@ -532,57 +532,70 @@ var regionX=3, regionY=5; // (3,5) is britannia, (4,6) is beach
 var chunkTop=1, chunkLeft=0;
 var g_currentPalNum=0;
 var g_framesRendered=0;
-var g_animatedTiles= new Array(40*25);
+// 40*25 is the visible area, but shapes can extend to their top-left by a few tiles.
+// thus we need to extend the area to the bottom right
+var SCREEN_WIDTH= 40+8;
+var SCREEN_HEIGHT=25+8;
+var g_animatedTiles= new Array(SCREEN_WIDTH*SCREEN_HEIGHT);
+var g_currentTiles= new Array(SCREEN_WIDTH*SCREEN_HEIGHT);
 
-// world files in memory
-function renderWorld()
+// update g_currentTiles with all tile shapes currently on screen. We will render them later
+function updateWorldTiles()
 {
     var region= world.getWorldRegion( regionX,regionY );
     for (var chunky=chunkTop; chunky<chunkTop+2; ++chunky) {
         for (var chunkx=chunkLeft; chunkx<chunkLeft+3; ++chunkx) {
-            var xoffs=(chunkx-chunkLeft)*16*8;
-            var yoffs=(chunky-chunkTop)*16*8;
+            var xoffs, yoffs, screenTile;
+            xoffs=(chunkx-chunkLeft)<<4;
+            yoffs=(chunky-chunkTop)<<4;
             var chunkdata= world.getChunk(region[chunky*16+chunkx]);
             for (var y=0; y<16; ++y) {
-                var yPixel= yoffs+ (y<<3);
-                var xPixel= xoffs;
+                if (y+yoffs >=SCREEN_HEIGHT) {y=16; continue; }
+                
+                screenTile=SCREEN_WIDTH*(y+yoffs) + xoffs;
                 var chunkPtr= (y<<4);
+                
                 for (var x=0; x<16; ++x) {
-                    var shapeFrame= chunkdata[ chunkPtr ];
-                    var shape= shapeFrame & 0x3FF;
-                    var frame= (shapeFrame>>10) & 0x1F;
-
-                    // beach is shape 1022
-                    //        if (shape<1022) return;
-                    var attribs= shapeFlagReader.getAttribs(shape);
-                    if (attribs.animated!=0) {
-                        // find tiles that contain animation frames
-                        frame= (frame+g_framesRendered) % 11;
-                        //g_animatedTiles[ 40*(y+(yoffs>>3) )+  (x+(xoffs>>3))]=1;
-                    } else {
-                        //g_animatedTiles[ 40*(y+(yoffs>>3))+  (x+(xoffs>>3))]=0;
-                    }
-
-                    var img = world.getShapeFrame(shape,frame);
-                    img.blitImage(xPixel,yPixel);
-                    xPixel+=8;
-                    ++chunkPtr;
+                    if (xoffs >=SCREEN_WIDTH) { x=16; continue; }
                     
-
+                    var shapeFrame= chunkdata[ chunkPtr++ ];
+                    g_currentTiles[ screenTile++ ]= shapeFrame;
                 } //x
             }//y
         }//chunkx
     }//chunky
+    renderWorld();
+}
+
+// Uses precalculated tiles and just renders them to screen
+function renderWorld()
+{
+    for (var i=0; i<SCREEN_WIDTH*SCREEN_HEIGHT; ++i) {
+        var shapeFrame=g_currentTiles[i];
+        var shape= shapeFrame & 0x3FF;
+        var frame= (shapeFrame>>10) & 0x1F;
+        
+        // beach is shape 1022
+        //        if (shape<1022) return;
+        var attribs= shapeFlagReader.getAttribs(shape);
+        if (attribs.animated!=0) {
+            // find tiles that contain animation frames
+            frame= (frame+g_framesRendered) % 11;
+        }
+        var img = world.getShapeFrame(shape,frame);
+        img.blitImage((i%SCREEN_WIDTH)<<3,(i/SCREEN_WIDTH)<<3);
+    }
+    
     // swap buffers
     ctx.putImageData(ctximagedata, 0, 0);
     ++g_framesRendered;
     
     // come back here in 100ms after cycling palette
     renderWorldTimer=setTimeout( function(){
-                                 animatePalette(world.palette);
-                                 renderWorld();
-                           },100);
-
+                                animatePalette(world.palette);
+                                renderWorld();
+                                },100);
+    
 }
 
 var worldInitialized= false;
@@ -593,7 +606,7 @@ function onPaletteLoaded(pal)
     {
         worldInitialized= true;
         shapeFlagReader.init(function() { }); // TODO: Make proper initialization
-        world.init(renderWorld);
+        world.init(updateWorldTiles);
     }
     //    loadFaces(pal);
     //        loadShapes(pal);
@@ -634,7 +647,7 @@ function onKeyDown(event) {
         clearTimeout(renderWorldTimer);
         
         console.profile('render map');
-        renderWorld();
+        updateWorldTiles();
         console.profileEnd('render map');
     }
 }
