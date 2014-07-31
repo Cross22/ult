@@ -81,9 +81,14 @@ FlxParser.prototype.readRecord= function (recordNum) {
 // ShapeFlagReader - gets extended information about renderable shapes
 // Stored in 24bits: http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats#aWorldShapes
 function  ShapeFlagReader() {
+    this.cache= new Array();
 }
 ShapeFlagReader.prototype.getAttribs= function(recordNum)
 {
+    var cached= this.cache[recordNum];
+    if (cached!==undefined)
+        return cached;
+    
     var TfaFlags = Struct.create(
                                         Struct.uint8("a"),
                                         Struct.uint8("b"),
@@ -107,6 +112,7 @@ ShapeFlagReader.prototype.getAttribs= function(recordNum)
         "tileYminusOne" : (flags.c>>3) & 7,
         "lightSource" : flags.c & 0x40,
         "translucent" : flags.c & 0x80 };
+    this.cache[recordNum]=attribs;
     return attribs;
 }
 
@@ -432,12 +438,13 @@ World.prototype.getChunk= function(chunkNum)
     return chunkData;
 }
 
-World.prototype.getShapeFrame= function(shapeFrame)
+World.prototype.getShapeFrame= function(shape,frame)
 {
-    var cached= this.shapeCache[shapeFrame];
+    var shapeFrame=shape | (frame<<10);
+    var cached= this.shapeCache[ shapeFrame ];
     if (cached===undefined) {
-        var shape= shapeFrame & 0x3FF;
-        var frame= (shapeFrame>>10) & 0x1F;
+//        var shape= shapeFrame & 0x3FF;
+//        var frame= (shapeFrame>>10) & 0x1F;
         // beach is shape 1022
 //        if (shape<1022) return;
 //        var attribs= shapeFlagReader.getAttribs(shape);
@@ -542,22 +549,25 @@ function renderWorld()
                 var chunkPtr= (y<<4);
                 for (var x=0; x<16; ++x) {
                     var shapeFrame= chunkdata[ chunkPtr ];
-                    var img = world.getShapeFrame(shapeFrame);
-                    img.blitImage(xPixel,yPixel);
-                    xPixel+=8;
-                    ++chunkPtr;
-                    /*
+                    var shape= shapeFrame & 0x3FF;
+                    var frame= (shapeFrame>>10) & 0x1F;
+
                     // beach is shape 1022
                     //        if (shape<1022) return;
-                    var shape= shapeFrame & 0x3FF;
-                     // TODO: getattribs needs to cache !!
                     var attribs= shapeFlagReader.getAttribs(shape);
                     if (attribs.animated!=0) {
                         // find tiles that contain animation frames
-                        g_animatedTiles[ 40*(y+yoffs/8)+  (x+xoffs/8)]=1;
+                        frame= (frame+g_framesRendered) % 11;
+                        //g_animatedTiles[ 40*(y+(yoffs>>3) )+  (x+(xoffs>>3))]=1;
                     } else {
-                        g_animatedTiles[ 40*(y+yoffs/8)+  (x+xoffs/8)]=0;
-                    }*/
+                        //g_animatedTiles[ 40*(y+(yoffs>>3))+  (x+(xoffs>>3))]=0;
+                    }
+
+                    var img = world.getShapeFrame(shape,frame);
+                    img.blitImage(xPixel,yPixel);
+                    xPixel+=8;
+                    ++chunkPtr;
+                    
 
                 } //x
             }//y
