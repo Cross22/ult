@@ -440,7 +440,7 @@ World.prototype.getShapeFrame= function(shapeFrame)
         var frame= (shapeFrame>>10) & 0x1F;
         // beach is shape 1022
 //        if (shape<1022) return;
-        var attribs= shapeFlagReader.getAttribs(shape);
+//        var attribs= shapeFlagReader.getAttribs(shape);
         var img= this.shapeParser.readShape(shape, frame);
         this.shapeCache[shapeFrame]=img; // cache for next time
         return img;
@@ -453,18 +453,19 @@ World.prototype.getShapeFrame= function(shapeFrame)
 //-----------------------------------------------------------------------------------------------------------------
 // MAIN()
 // current shape record to read.
-var currShape;
-var MIN_RECORD = 116;
-var MAX_RECORD= MIN_RECORD+5;
+//var currShape;
+//var MIN_RECORD = 116;
+//var MAX_RECORD= MIN_RECORD+5;
 var intervalId;
 var renderWorldTimer;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
-//var shpParser = new ShapeParser();
-var arrImages = new Array(MAX_RECORD);
-
 var shapeFlagReader= new ShapeFlagReader();
+
+//var shpParser = new ShapeParser();
+//var arrImages = new Array(MAX_RECORD);
+
 /*
 function drawShapes(palette) {
     intervalId=setInterval( function(){
@@ -520,11 +521,11 @@ function loadFaces(palette) {
 }*/
 
 var world= new World();
-var regionX=4, regionY=6; // (3,5) is britannia, (4,6) is beach
+var regionX=3, regionY=5; // (3,5) is britannia, (4,6) is beach
 var chunkTop=1, chunkLeft=0;
 var g_currentPalNum=0;
 var g_framesRendered=0;
-
+var g_animatedTiles= new Array(40*25);
 
 // world files in memory
 function renderWorld()
@@ -536,12 +537,28 @@ function renderWorld()
             var yoffs=(chunky-chunkTop)*16*8;
             var chunkdata= world.getChunk(region[chunky*16+chunkx]);
             for (var y=0; y<16; ++y) {
+                var yPixel= yoffs+ (y<<3);
+                var xPixel= xoffs;
+                var chunkPtr= (y<<4);
                 for (var x=0; x<16; ++x) {
-                    var shapeFrame= chunkdata[x+y*16];
+                    var shapeFrame= chunkdata[ chunkPtr ];
                     var img = world.getShapeFrame(shapeFrame);
-                    if (img!==undefined) {
-                        img.blitImage(xoffs+ x*8,yoffs+ y*8);
-                    }
+                    img.blitImage(xPixel,yPixel);
+                    xPixel+=8;
+                    ++chunkPtr;
+                    /*
+                    // beach is shape 1022
+                    //        if (shape<1022) return;
+                    var shape= shapeFrame & 0x3FF;
+                     // TODO: getattribs needs to cache !!
+                    var attribs= shapeFlagReader.getAttribs(shape);
+                    if (attribs.animated!=0) {
+                        // find tiles that contain animation frames
+                        g_animatedTiles[ 40*(y+yoffs/8)+  (x+xoffs/8)]=1;
+                    } else {
+                        g_animatedTiles[ 40*(y+yoffs/8)+  (x+xoffs/8)]=0;
+                    }*/
+
                 } //x
             }//y
         }//chunkx
