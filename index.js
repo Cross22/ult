@@ -47,11 +47,12 @@ FlxParser.prototype.parse= function(recordNum)
     //    console.log('Num records in file: '+hdr.numRecords);
     // Read all record indices
     var recordIndex = TFlxRecordIndex.readStructs(this.buffer, 0x80, hdr.numRecords);
-    this.onRecordRead(recordIndex[recordNum].byteOffset,recordIndex[recordNum].byteLength);
+    return {"byteOffset" : recordIndex[recordNum].byteOffset,
+        "byteLength" : recordIndex[recordNum].byteLength};
 }
 
-FlxParser.prototype.sendRequest= function (filename, recordNum) {
-    // do we need to read the file first?
+FlxParser.prototype.init= function (filename, onLoaded ) {
+    // sanity check
     if (this.buffer===undefined)
     {
         var request = new XMLHttpRequest();
@@ -61,22 +62,19 @@ FlxParser.prototype.sendRequest= function (filename, recordNum) {
         
         var self=this;
         request.onload = function() {
-            //            console.log("file loaded: "+filename);
             self.buffer= request.response;
-            self.parse( recordNum  );
+            onLoaded();
         }
         request.send();
     } else {
-        // file is already loaded. reuse buffer
-        this.parse( recordNum  );
+        // file is already loaded.
+        onLoaded();
     }
+    
 }
 
-
-// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
-FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
-    this.onRecordRead = onRecordRead;
-    this.sendRequest(filename, recordNum);
+FlxParser.prototype.readRecord= function (recordNum) {
+    return this.parse(recordNum);
 }
 
 //---------------------------------------------------------------------------
@@ -221,14 +219,13 @@ RGBAImage.prototype.blitImage= function(x,y) {
 // Palette parsing
 function  PaletteParser() {
     FlxParser.apply(this, Array.prototype.slice.call(arguments));
-    this.onload= function(palette) {}
-    this.onRecordRead = this.parsePalette;
 }
 PaletteParser.prototype= new FlxParser();
 
-// Load file and set palette to palette stored in recordnum
-PaletteParser.prototype.readFile= function (filename, recordNum ) {
-    this.sendRequest(filename, recordNum);
+// 12 palettes total. daytime, dusk, night, monochrome...
+PaletteParser.prototype.readPalette= function (recordNum ) {
+    var record= this.readRecord(recordNum);
+    return this.parsePalette(record.byteOffset, record.byteLength);
 }
 
 PaletteParser.prototype.parsePalette= function (fileOffset,byteLength) {
@@ -244,8 +241,7 @@ PaletteParser.prototype.parsePalette= function (fileOffset,byteLength) {
         pal[c].g <<= 2;
         pal[c].b <<= 2;
     }
-    // there should be 11 more palettes here..
-    this.onload(pal);
+    return pal;
 }
 
 
@@ -257,12 +253,13 @@ function  ShapeParser() {
 ShapeParser.prototype= new FlxParser();
 
 // Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
-ShapeParser.prototype.readFile= function (filename, recordNum, frameNum, callback) {
-    this.onRecordRead = function(fileOffset,byteLength){ this.parseFrameIndex(fileOffset, byteLength, frameNum, callback); }
-    this.sendRequest(filename, recordNum);
+ShapeParser.prototype.readShape= function (recordNum, frameNum) {
+    var record= this.readRecord(recordNum);
+    var res= this.parseFrameIndex(record.byteOffset, record.byteLength, frameNum);
+    return res;
 }
 
-ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNum,callback) {
+ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNum) {
     var TShpStart = Struct.create(
                                   Struct.uint32("totalLength"),
                                   Struct.uint32("firstFrameOffset") // relative to beginning of flx file
@@ -283,7 +280,7 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
             console.log('frame request exceeded numFrames');
             frameNum= numFrames-1;
         }
-        this.parseShapeFrame(fileOffset+frameIndex[frameNum], callback);
+        return this.parseShapeFrame(fileOffset+frameIndex[frameNum]);
     } else {
         // raw data, no frame header for 8x8 fixed ground tiles
         var LEN= 8*8;
@@ -297,11 +294,11 @@ ShapeParser.prototype.parseFrameIndex= function (fileOffset, byteLength, frameNu
         var readPointer=fileOffset + LEN* frameNum;
         var data = new Uint8Array(this.buffer, readPointer, LEN);
         rgbaImage.setSpan(-7, -7, data);
-        callback(rgbaImage);
+        return rgbaImage;
     }
 }
 
-ShapeParser.prototype.parseShapeFrame= function (fileOffset, callback)
+ShapeParser.prototype.parseShapeFrame= function (fileOffset)
 {
     var TFrameDesc = Struct.create(
                                    Struct.uint16("maxX"),
@@ -356,14 +353,14 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset, callback)
         }
     }
     
-    callback(rgbaImage);
+    return rgbaImage;
 }
 
 //-----------------------------------------------------------------------------------------------------------------
 // World data
 function  World() {
     this.shapeCache= new Array();
-    this.shpParser = new ShapeParser();
+    this.shapeParser = new ShapeParser();
     var self=this;
 }
 
@@ -378,8 +375,7 @@ World.prototype.init= function (onReady) {
                        );
     };
     
-    // start with dummy shape
-    this.getShape(0,0, shapeOnload);
+    this.shapeParser.init(SHAPES_VGA,shapeOnload);
 }
 
 World.prototype.readU7map= function (onLoaded) {
@@ -436,30 +432,20 @@ World.prototype.getChunk= function(chunkNum)
     return chunkData;
 }
 
-World.prototype.getShape= function(shapeNum,frameNum,onLoad)
-{
-    this.shpParser.readFile(SHAPES_VGA, shapeNum, frameNum, onLoad);
-}
-
-World.prototype.getShapeFrame= function(shapeFrame,onLoad)
+World.prototype.getShapeFrame= function(shapeFrame)
 {
     var cached= this.shapeCache[shapeFrame];
     if (cached===undefined) {
-        var self=this;
-        
         var shape= shapeFrame & 0x3FF;
         var frame= (shapeFrame>>10) & 0x1F;
         // beach is shape 1022
 //        if (shape<1022) return;
         var attribs= shapeFlagReader.getAttribs(shape);
-        
-        this.shpParser.readFile(SHAPES_VGA, shape, frame,
-                                function (img) {
-                                self.shapeCache[shapeFrame]=img; // cache for next time
-                                onLoad(img);
-                                });
+        var img= this.shapeParser.readShape(shape, frame);
+        this.shapeCache[shapeFrame]=img; // cache for next time
+        return img;
     } else {
-        onLoad(cached);
+        return cached;
     }
 }
 
@@ -531,31 +517,14 @@ function loadFaces(palette) {
     }
     
     shpParser.readFile(filename, currShape, frame);
-}
+}*/
 
-function loadShapes(palette) {
-    var filename= SHAPES_VGA;
-    var frame=0; // some shapes have multiple frames/expressions
-    currShape=MIN_RECORD;
-    
-    shpParser.onload= function(rgbaImage) {
-        if (rgbaImage) {
-            rgbaImage.applyPalette(palette);
-            arrImages[currShape]=rgbaImage;
-        }
-        if (++currShape>=MAX_RECORD)
-            drawShapes(palette);
-        else
-            shpParser.readFile(filename, currShape, frame);
-    }
-    
-    shpParser.readFile(filename, currShape, frame);
-}
-*/
 var world= new World();
 var regionX=4, regionY=6; // (3,5) is britannia, (4,6) is beach
 var chunkTop=1, chunkLeft=0;
-var currentPalNum=0;
+var g_currentPalNum=0;
+var g_framesRendered=0;
+
 
 // world files in memory
 function renderWorld()
@@ -569,18 +538,19 @@ function renderWorld()
             for (var y=0; y<16; ++y) {
                 for (var x=0; x<16; ++x) {
                     var shapeFrame= chunkdata[x+y*16];
-                    
-                    world.getShapeFrame(shapeFrame,function(img)
-                                        {
-                                        if (img!==undefined) {
-                                        img.blitImage(xoffs+ x*8,yoffs+ y*8);
-                                        }
-                                        });
+                    var img = world.getShapeFrame(shapeFrame);
+                    if (img!==undefined) {
+                        img.blitImage(xoffs+ x*8,yoffs+ y*8);
+                    }
                 } //x
             }//y
         }//chunkx
     }//chunky
+    // swap buffers
     ctx.putImageData(ctximagedata, 0, 0);
+    ++g_framesRendered;
+    
+    // come back here in 100ms after cycling palette
     renderWorldTimer=setTimeout( function(){
                                  animatePalette(world.palette);
                                  renderWorld();
@@ -603,8 +573,8 @@ function onPaletteLoaded(pal)
 }
 
 function loadPalette(palNum) {
-    palParser.onload= onPaletteLoaded;
-    palParser.readFile(PALETTES_FLX, palNum);
+    var pal= palParser.readPalette( palNum);
+    onPaletteLoaded(pal);
 }
 
 // Move chunk base with WASD keys
@@ -627,8 +597,8 @@ function onKeyDown(event) {
     if (e==68 /*d*/){
         if (chunkLeft<12) { ++chunkLeft; dirty=true; }
     } if (e==80 /*p*/){
-        currentPalNum= (++currentPalNum) % 12;
-        loadPalette(currentPalNum);
+        g_currentPalNum= (++g_currentPalNum) % 12;
+        loadPalette(g_currentPalNum);
         dirty= true;
     }
     
@@ -648,6 +618,6 @@ window.onload=function(){
     ctximagedata= ctx.createImageData(320,200);
 
     // Load Palette #0 first
-    loadPalette(currentPalNum);
+    palParser.init(PALETTES_FLX, function () {loadPalette(g_currentPalNum); } );
 };
 
