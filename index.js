@@ -11,6 +11,7 @@ var U7CHUNKS='U7/STATIC/U7CHUNKS';
 var SHAPES_VGA='U7/STATIC/SHAPES.VGA';
 var FACES_VGA='U7/STATIC/FACES.VGA';   //0..292
 var PALETTES_FLX='U7/STATIC/PALETTES.FLX';
+var TFA_DAT='U7/STATIC/TFA.DAT';
 
 //-----------------------------------------------------------------------------------------------------------------
 // Make a hex string out of value
@@ -78,6 +79,55 @@ FlxParser.prototype.readFile= function (filename, recordNum, onRecordRead ) {
     this.sendRequest(filename, recordNum);
 }
 
+//---------------------------------------------------------------------------
+// ShapeFlagReader - gets extended information about renderable shapes
+// Stored in 24bits: http://wiki.ultimacodex.com/wiki/Ultima_VII_Internal_Formats#aWorldShapes
+function  ShapeFlagReader() {
+}
+ShapeFlagReader.prototype.getAttribs= function(recordNum)
+{
+    var TfaFlags = Struct.create(
+                                        Struct.uint8("a"),
+                                        Struct.uint8("b"),
+                                        Struct.uint8("c")
+                                        );
+    var flags = TfaFlags.readStructs(this.buffer, 3*recordNum, 1)[0];
+    // make it human-readable and pass back to caller
+    var attribs= {
+        "unknown": flags.a & 1,
+        "rotatable": flags.a & 2,
+        "animated" : flags.a & 4,
+        "obstacle" : flags.a & 8,
+        "water" : flags.a & 0x10,
+        "tileZ" : (flags.a >> 5) & 7,
+        "type"  : flags.b & 15,
+        "itsatrap" : flags.b & 0x10,
+        "door" : flags.b & 0x20,
+        "vehicle" : flags.b & 0x40,
+        "unselectable" : flags.b & 0x80,
+        "tileXminusOne" : (flags.c & 7),
+        "tileYminusOne" : (flags.c>>3) & 7,
+        "lightSource" : flags.c & 0x40,
+        "translucent" : flags.c & 0x80 };
+    return attribs;
+}
+
+// Load file and then call onRecordRead(arrayBuffer, byteOffset) once recordNum has been read
+// onRecordRead( recordNum, attrib );
+ShapeFlagReader.prototype.init= function ( onLoaded ) {
+    var request = new XMLHttpRequest();
+    
+    request.open( 'GET', TFA_DAT, true );
+    request.responseType = 'arraybuffer';
+    
+    var self=this;
+    request.onload = function() {
+        self.buffer= request.response;
+        onLoaded();
+    }
+    request.send();
+}
+
 
 //-----------------------------------------------------------------------------------------------------------------
 // A simple image object that can be blitted later. Uses gPalette to map from indexed to RGBA
@@ -89,31 +139,19 @@ function  RGBAImage(left,top,right,bottom) {
     this.imgTop=top;
     this.imgBottom=bottom;
     
-    var imageWidth = right -left + 1;
-    var imageHeight =bottom - top +1;
+    this.width = right -left + 1;
+    this.height =bottom - top +1;
     // check for illegal values
-    if (imageWidth>320||imageHeight>200) {
+    if (this.width>320||this.height>200) {
         return null;
     }
-    this.buffer= this.createBuffer(imageWidth,imageHeight);
-    this.indexedData= new Array(imageWidth*imageHeight);
-}
-
-// putImageData does not support blending/transparency, and has terrible perf on Chrome. apparently it is faster
-// to create secondary canvas elements and blit them to the primary using drawImage
-RGBAImage.prototype.createBuffer= function(width,height) {
-    var buffer = new Object();
-    buffer.canvas = document.createElement("canvas");
-    buffer.canvas.width = width;
-    buffer.canvas.height = height;
-    
-    return buffer;
+    this.indexedData= new Array(this.width*this.height);
 }
 
 // store span in indexed data buffer
 RGBAImage.prototype.setSpan= function(x, y, data) {
     x+= -this.imgLeft; y+= -this.imgTop;
-    var indexPtr= (x+y*this.buffer.canvas.width);
+    var indexPtr= (x+y*this.width);
     for (var i=0; i<data.length; ++i) {
         var color= data[i];
         if (color===0xff) { // 0xff is transparent
@@ -126,8 +164,8 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
 }
 
 RGBAImage.prototype.blitImage= function(x,y) {
-    var w=this.buffer.canvas.width;
-    var h=this.buffer.canvas.height;
+    var w=this.width;
+    var h=this.height;
     
     var leftScreen=x+this.imgLeft;
     var rightScreen=leftScreen+w;
@@ -273,11 +311,6 @@ ShapeParser.prototype.parseShapeFrame= function (fileOffset, callback)
                                    );
     var frameDesc = TFrameDesc.readStructs(this.buffer, fileOffset, 1)[0];
     var rgbaImage= new RGBAImage(-frameDesc.minXinverted, -frameDesc.minYinverted, frameDesc.maxX, frameDesc.maxY);
-    if (rgbaImage.buffer===undefined) {
-        console.log('invalid shape frame');
-        callback(null);
-        return;
-    }
     
     //    console.log( 'Frame ' + (frameDesc.minXinverted*-1) + ',' + (frameDesc.minYinverted*-1)  +' / '+ (frameDesc.maxX) + ',' + frameDesc.maxY);
     
@@ -416,9 +449,12 @@ World.prototype.getShapeFrame= function(shapeFrame,onLoad)
         
         var shape= shapeFrame & 0x3FF;
         var frame= (shapeFrame>>10) & 0x1F;
+        // beach is shape 1022
+//        if (shape<1022) return;
+        var attribs= shapeFlagReader.getAttribs(shape);
+        
         this.shpParser.readFile(SHAPES_VGA, shape, frame,
                                 function (img) {
-//                                console.log('shape/frame: '+shape+' '+frame);
                                 self.shapeCache[shapeFrame]=img; // cache for next time
                                 onLoad(img);
                                 });
@@ -435,12 +471,15 @@ var currShape;
 var MIN_RECORD = 116;
 var MAX_RECORD= MIN_RECORD+5;
 var intervalId;
+var renderWorldTimer;
 
 // We just need one flx parser here
 var palParser = new PaletteParser();
 //var shpParser = new ShapeParser();
 var arrImages = new Array(MAX_RECORD);
 
+var shapeFlagReader= new ShapeFlagReader();
+/*
 function drawShapes(palette) {
     intervalId=setInterval( function(){
                            animatePalette(palette);
@@ -456,7 +495,7 @@ function drawShapes(palette) {
                            }
                            },100);
 }
-
+*/
 function shiftPalette(palette, minRange, maxRange)
 {
     var saved= palette[maxRange];
@@ -474,7 +513,7 @@ function animatePalette(palette) {
     shiftPalette(palette,248,251);
     shiftPalette(palette,252,254);
 }
-
+/*
 function loadFaces(palette) {
     var filename= FACES_VGA;
     var frame=0; // some shapes have multiple frames/expressions
@@ -512,15 +551,16 @@ function loadShapes(palette) {
     
     shpParser.readFile(filename, currShape, frame);
 }
-
+*/
 var world= new World();
-var chunkTop=0, chunkLeft=0;
+var regionX=4, regionY=6; // (3,5) is britannia, (4,6) is beach
+var chunkTop=1, chunkLeft=0;
 var currentPalNum=0;
 
 // world files in memory
 function renderWorld()
 {
-    var region= world.getWorldRegion(3,5);
+    var region= world.getWorldRegion( regionX,regionY );
     for (var chunky=chunkTop; chunky<chunkTop+2; ++chunky) {
         for (var chunkx=chunkLeft; chunkx<chunkLeft+3; ++chunkx) {
             var xoffs=(chunkx-chunkLeft)*16*8;
@@ -541,6 +581,11 @@ function renderWorld()
         }//chunkx
     }//chunky
     ctx.putImageData(ctximagedata, 0, 0);
+    renderWorldTimer=setTimeout( function(){
+                                 animatePalette(world.palette);
+                                 renderWorld();
+                           },100);
+
 }
 
 var worldInitialized= false;
@@ -550,6 +595,7 @@ function onPaletteLoaded(pal)
     if (!worldInitialized)
     {
         worldInitialized= true;
+        shapeFlagReader.init(function() { }); // TODO: Make proper initialization
         world.init(renderWorld);
     }
     //    loadFaces(pal);
@@ -587,6 +633,9 @@ function onKeyDown(event) {
     }
     
     if (dirty) {
+        // clear pending screen refresh
+        clearTimeout(renderWorldTimer);
+        
         console.profile('render map');
         renderWorld();
         console.profileEnd('render map');
