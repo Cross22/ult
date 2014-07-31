@@ -3,6 +3,7 @@
 
 var ctx ;
 var ctximagedata;
+
 // 8x8 Tiles: 0..149,
 // Regular shapes: 150..1000, excluding: 153,158,159,160,161,168,186,187,194 and several others
 var U7MAP='U7/STATIC/U7MAP';
@@ -123,10 +124,6 @@ RGBAImage.prototype.setSpan= function(x, y, data) {
         }
     }
 }
-// convert indexed data to RGBA buffer
-RGBAImage.prototype.applyPalette= function(palette) {
-    this.palette= palette;
-}
 
 RGBAImage.prototype.blitImage= function(x,y) {
     var w=this.buffer.canvas.width;
@@ -167,7 +164,7 @@ RGBAImage.prototype.blitImage= function(x,y) {
             
             var inptr= (sy*w+sx);
             
-            var color= this.palette[sourcedata[inptr]];
+            var color= world.palette[sourcedata[inptr]];
             if (color===undefined) {
                 //alpha=0
                 continue;
@@ -517,14 +514,12 @@ function loadShapes(palette) {
 }
 
 var world= new World();
-var palette;
 var chunkTop=0, chunkLeft=0;
+var currentPalNum=0;
 
-var tilesremaining=0;
 // world files in memory
-function onMapLoaded()
+function renderWorld()
 {
-    tilesremaining=0;
     var region= world.getWorldRegion(3,5);
     for (var chunky=chunkTop; chunky<chunkTop+2; ++chunky) {
         for (var chunkx=chunkLeft; chunkx<chunkLeft+3; ++chunkx) {
@@ -538,7 +533,6 @@ function onMapLoaded()
                     world.getShapeFrame(shapeFrame,function(img)
                                         {
                                         if (img!==undefined) {
-                                        img.applyPalette(palette);
                                         img.blitImage(xoffs+ x*8,yoffs+ y*8);
                                         }
                                         });
@@ -549,10 +543,15 @@ function onMapLoaded()
     ctx.putImageData(ctximagedata, 0, 0);
 }
 
+var worldInitialized= false;
 function onPaletteLoaded(pal)
 {
-    palette= pal;
-    world.init(onMapLoaded);
+    world.palette= pal;
+    if (!worldInitialized)
+    {
+        worldInitialized= true;
+        world.init(renderWorld);
+    }
     //    loadFaces(pal);
     //        loadShapes(pal);
 }
@@ -581,12 +580,15 @@ function onKeyDown(event) {
     
     if (e==68 /*d*/){
         if (chunkLeft<12) { ++chunkLeft; dirty=true; }
-    } else {
+    } if (e==80 /*p*/){
+        currentPalNum= (++currentPalNum) % 12;
+        loadPalette(currentPalNum);
+        dirty= true;
     }
     
     if (dirty) {
         console.profile('render map');
-        onMapLoaded();
+        renderWorld();
         console.profileEnd('render map');
     }
 }
@@ -597,6 +599,6 @@ window.onload=function(){
     ctximagedata= ctx.createImageData(320,200);
 
     // Load Palette #0 first
-    loadPalette(0);
+    loadPalette(currentPalNum);
 };
 
