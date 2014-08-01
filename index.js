@@ -249,6 +249,48 @@ PaletteParser.prototype.parsePalette= function (fileOffset,byteLength) {
     return pal;
 }
 
+//-----------------------------------------------------------------------------------------------------------------
+// IFix file parsing
+function  IFixParser() {
+    FlxParser.apply(this, Array.prototype.slice.call(arguments));
+}
+IFixParser.prototype= new FlxParser();
+
+IFixParser.prototype.initRegion= function (regionX, regionY, onLoaded) {
+    var regionNum= regionY*12+regionX;
+    var upper= (regionNum / 16) |0;
+    var lower= (regionNum % 16) |0;
+    var fixfile= "U7/STATIC/U7IFIX"+ upper.toString(16).toUpperCase() + lower.toString(16).toUpperCase();
+    this.init(fixfile, onLoaded);
+}
+
+IFixParser.prototype.readChunkData= function (chunkX, chunkY) {
+    var recordNum= chunkY*16+chunkX;
+    var record= this.readRecord(recordNum);
+    return this.parseChunkData(record.byteOffset, record.byteLength);
+}
+
+var TIFixEntry = Struct.create(
+                                Struct.uint8("xypos"),
+                                Struct.uint8("height"),
+                                Struct.uint16("shapeFrame")
+                                );
+
+IFixParser.prototype.parseChunkData= function (fileOffset,byteLength) {
+    if (fileOffset===0) {
+        return [];
+    }
+    // array of extra objects in this chunk. each array entry is 4 bytes
+    var numEntries=(byteLength >> 2);
+    var ifixEntry = TIFixEntry.readStructs(this.buffer, fileOffset, numEntries );
+    for (var i=0; i<numEntries; ++i) {
+        ifixEntry[i].y= ifixEntry[i].xypos & 0xF;
+        ifixEntry[i].x= (ifixEntry[i].xypos>>4) & 0xF;
+        ifixEntry[i].height= ifixEntry[i].height & 0xF;
+    }
+    return ifixEntry;
+}
+
 
 //-----------------------------------------------------------------------------------------------------------------
 // Shape frame parsing
@@ -516,7 +558,24 @@ function drawShapes(palette) {
                            }
                            },100);
 }
-*/
+ function loadFaces(palette) {
+ var filename= FACES_VGA;
+ var frame=0; // some shapes have multiple frames/expressions
+ currShape=MIN_RECORD;
+ 
+ shpParser.onload= function(rgbaImage) {
+ if (rgbaImage) {
+ arrImages[currShape]=rgbaImage;
+ }
+ if (++currShape>=MAX_RECORD)
+ drawShapes(palette);
+ else
+ shpParser.readFile(filename, currShape, frame);
+ }
+ 
+ shpParser.readFile(filename, currShape, frame);
+ }*/
+
 function shiftPalette(palette, minRange, maxRange)
 {
     var saved= palette[maxRange];
@@ -525,7 +584,7 @@ function shiftPalette(palette, minRange, maxRange)
     }
     palette[minRange]=saved;
 }
-// some sections of the color palette get shiftled every 100ms
+// some sections of the color palette get shifted every 100ms
 function animatePalette(palette) {
     shiftPalette(palette,224,231);
     shiftPalette(palette,232,239);
@@ -534,28 +593,12 @@ function animatePalette(palette) {
     shiftPalette(palette,248,251);
     shiftPalette(palette,252,254);
 }
-/*
-function loadFaces(palette) {
-    var filename= FACES_VGA;
-    var frame=0; // some shapes have multiple frames/expressions
-    currShape=MIN_RECORD;
-    
-    shpParser.onload= function(rgbaImage) {
-        if (rgbaImage) {
-            //            rgbaImage.applyPalette(palette);
-            arrImages[currShape]=rgbaImage;
-        }
-        if (++currShape>=MAX_RECORD)
-            drawShapes(palette);
-        else
-            shpParser.readFile(filename, currShape, frame);
-    }
-    
-    shpParser.readFile(filename, currShape, frame);
-}*/
 
 var world= new World();
 var regionX=3, regionY=5; // (3,5) is britannia, (4,6) is beach
+
+var ifixParser= new IFixParser();
+
 var chunkTop=1, chunkLeft=0;
 var g_currentPalNum=0;
 var g_framesRendered=0;
@@ -565,10 +608,14 @@ var SCREEN_WIDTH= 40+8;
 var SCREEN_HEIGHT=25+8;
 var g_animatedTiles= new Array(SCREEN_WIDTH*SCREEN_HEIGHT);
 var g_currentTiles= new Array(SCREEN_WIDTH*SCREEN_HEIGHT);
+var g_ifixTiles; // overlay tiles from ifix files
 
 // update g_currentTiles with all tile shapes currently on screen. We will render them later
 function updateWorldTiles()
 {
+    // TODO: remove test for ifix
+//    g_ifixTiles= new Array(SCREEN_WIDTH*SCREEN_HEIGHT);
+
     var region= world.getWorldRegion( regionX,regionY );
     for (var chunky=chunkTop; chunky<chunkTop+2; ++chunky) {
         for (var chunkx=chunkLeft; chunkx<chunkLeft+3; ++chunkx) {
@@ -576,6 +623,17 @@ function updateWorldTiles()
             xoffs=(chunkx-chunkLeft)<<4;
             yoffs=(chunky-chunkTop)<<4;
             var chunkdata= world.getChunk(region[chunky*16+chunkx]);
+            
+            /*
+            // TODO: remove test for ifix
+            var chunkifix= ifixParser.readChunkData(chunkx, chunky);
+            for (var i=0; i<chunkifix.length; ++i) {
+                screenTile=SCREEN_WIDTH*(chunkifix[i].y+yoffs) + xoffs + chunkifix[i].x;
+                g_ifixTiles[ screenTile ]=chunkifix[i].shapeFrame;
+            }
+            // TODO: remove test for ifix
+            */
+            
             for (var y=0; y<16; ++y) {
                 if (y+yoffs >=SCREEN_HEIGHT) {y=16; continue; }
                 
@@ -591,14 +649,16 @@ function updateWorldTiles()
             }//y
         }//chunkx
     }//chunky
+    
+    
     renderWorld();
 }
 
 // Uses precalculated tiles and just renders them to screen
-function renderWorld()
+function renderTileArray(arr)
 {
     for (var i=0; i<SCREEN_WIDTH*SCREEN_HEIGHT; ++i) {
-        var shapeFrame=g_currentTiles[i];
+        var shapeFrame=arr[i];
         var shape= shapeFrame & 0x3FF;
         var frame= (shapeFrame>>10) & 0x1F;
         
@@ -612,6 +672,12 @@ function renderWorld()
         var img = world.getShapeFrame(shape,frame);
         img.blitImage((i%SCREEN_WIDTH)<<3,(i/SCREEN_WIDTH)<<3);
     }
+}
+
+function renderWorld()
+{
+    renderTileArray(g_currentTiles);
+//    renderTileArray(g_ifixTiles);
     
     // swap buffers
     ctx.putImageData(ctximagedata, 0, 0);
@@ -684,6 +750,10 @@ window.onload=function(){
     ctx = canvas.getContext("2d");
     ctximagedata= ctx.createImageData(320,200);
 
+    ifixParser.initRegion(regionX,regionY, function() {
+                          });
+
+    
     // Load Palette #0 first
     palParser.init(PALETTES_FLX, function () {loadPalette(g_currentPalNum); } );
 };
